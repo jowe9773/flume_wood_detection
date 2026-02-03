@@ -60,10 +60,10 @@ if __name__ == "__main__":
 
     best_model = train_yolov11(
         data_yaml=DATA_YAML,
-        model_size="yolov8s.pt",
+        model_size="yolo11s.pt",
         epochs=80,
         batch=12,
-        device= "cpu",
+        device= "0",
         project_dir= "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/testing_125_frames/"
     )
 
