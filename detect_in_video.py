@@ -5,9 +5,8 @@ from ultralytics import YOLO
 # Config
 # -----------------------------
 
-
-MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/testing_125_frames/yolov11_from_scratch_finetune2/weights/best.pt"
-VIDEO_PATH = ""
+MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes/test/weights/best.pt"
+VIDEO_PATH = "D:/Videos/20240708_exp1_goprodata_full.mp4"
 CONF_THRESH = 0.25
 
 # -----------------------------
@@ -22,10 +21,13 @@ cap = cv2.VideoCapture(VIDEO_PATH)
 if not cap.isOpened():
     raise IOError(f"Could not open video: {VIDEO_PATH}")
 
+cap.set(cv2.CAP_PROP_POS_FRAMES, 6000) 
+
 # Optional: get video properties
 fps = cap.get(cv2.CAP_PROP_FPS)
 width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
 
 print(f"Video: {width}x{height} @ {fps:.1f} FPS")
 

@@ -4,11 +4,11 @@ from pathlib import Path
 
 def train_yolov11(
     data_yaml: str,
-    model_size: str = "yolov11s.pt",
+    model_size: str = "yolo11s.pt", #"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/using_pretrained_model/best.pt",
     project_dir: str = "runs",
-    exp_name: str = "yolov11_from_scratch_finetune",
+    exp_name: str = "test",
     epochs: int = 100,
-    imgsz: int = 640,
+    imgsz: int = 800,
     batch: int = 16,
     device: int = 0,
 ):
@@ -56,7 +56,7 @@ def train_yolov11(
 
 
 if __name__ == "__main__":
-    DATA_YAML = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/testing_125_frames/project-11-at-2026-02-03-10-33-a34089e0/dataset.yaml"
+    DATA_YAML = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations/dataset.yaml"
 
     best_model = train_yolov11(
         data_yaml=DATA_YAML,
@@ -64,7 +64,7 @@ if __name__ == "__main__":
         epochs=80,
         batch=12,
         device= "0",
-        project_dir= "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/testing_125_frames/"
+        project_dir= "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations"
     )
 
     print("Training finished.")
