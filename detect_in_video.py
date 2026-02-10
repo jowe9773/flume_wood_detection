@@ -6,8 +6,8 @@ from ultralytics import YOLO
 # -----------------------------
 
 
-MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/testing_125_frames/yolov11_from_scratch_finetune2/weights/best.pt"
-VIDEO_PATH = ""
+MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/testing_125_frames/yolov11_from_scratch_finetune9/weights/best.pt"
+VIDEO_PATH = "D:/Videos/20240529_exp2_goprodata_full.mp4"
 CONF_THRESH = 0.25
 
 # -----------------------------

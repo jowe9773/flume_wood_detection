@@ -56,7 +56,7 @@ def train_yolov11(
 
 
 if __name__ == "__main__":
-    DATA_YAML = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/testing_125_frames/project-11-at-2026-02-03-10-33-a34089e0/dataset.yaml"
+    DATA_YAML = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/testing_125_frames/dataset.yaml"
 
     best_model = train_yolov11(
         data_yaml=DATA_YAML,
