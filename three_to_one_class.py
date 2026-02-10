@@ -2,10 +2,10 @@ import os
 import shutil
 
 # Original dataset root (with 'train' and 'validate')
-root_dir = "c:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/testing_125_frames/project-11-at-2026-02-03-10-33-a34089e0/labels"
+root_dir = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_one_class/labels"
 
 # New dataset root to save merged labels
-output_root_dir = "c:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/testing_125_frames/project-11-at-2026-02-03-10-33-a34089e0/labels_single"
+output_root_dir = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_one_class/labels_single"
 os.makedirs(output_root_dir, exist_ok=True)
 
 # Subfolders to process

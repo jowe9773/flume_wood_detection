@@ -4,7 +4,7 @@ from pathlib import Path
 
 def train_yolov11(
     data_yaml: str,
-    model_size: str = "yolo11s.pt", #"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/using_pretrained_model/best.pt",
+    model_size: str = "yolo11s.pt",
     project_dir: str = "runs",
     exp_name: str = "test",
     epochs: int = 100,
@@ -56,15 +56,17 @@ def train_yolov11(
 
 
 if __name__ == "__main__":
-    DATA_YAML = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations/dataset.yaml"
+    DATA_YAML = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes/dataset.yaml"
 
     best_model = train_yolov11(
         data_yaml=DATA_YAML,
-        model_size="yolo11s.pt",
-        epochs=80,
-        batch=12,
+        model_size= "yolo11m.pt", #"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/using_pretrained_model/best.pt",
+        epochs=500,
+        batch=16,
+        imgsz=800,
         device= "0",
-        project_dir= "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations"
+        exp_name= "yolo11m",
+        project_dir= "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes"
     )
 
     print("Training finished.")

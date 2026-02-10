@@ -5,9 +5,9 @@ from ultralytics import YOLO
 # Config
 # -----------------------------
 
-MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes/test/weights/best.pt"
-VIDEO_PATH = "D:/Videos/20240708_exp1_goprodata_full.mp4"
-CONF_THRESH = 0.25
+MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_one_class/yolo11m/weights/best.pt"
+VIDEO_PATH = "D:/Videos/20240731_exp1_goprodata_full.mp4"
+CONF_THRESH = 0.5
 
 # -----------------------------
 # Load model
@@ -44,10 +44,12 @@ while True:
 
 
     # YOLO inference (single frame)
-    results = model(
+    results = model.predict(
         frame,
         conf=CONF_THRESH,
-        verbose=False
+        verbose=False,
+        show_labels=False,
+        show_conf=False
     )
 
     # results[0] corresponds to this frame
