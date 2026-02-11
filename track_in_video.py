@@ -1,5 +1,8 @@
+from collections import defaultdict
+
 import cv2
-import random
+import numpy as np
+
 from ultralytics import YOLO
 
 # -----------------------------
@@ -7,74 +10,50 @@ from ultralytics import YOLO
 # -----------------------------
 
 MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_one_class/yolo11m/weights/best.pt"
-VIDEO_PATH = "D:/Videos/20240808_exp1_goprodata_full.mp4"
-
+VIDEO_PATH = "D:/Videos/20240529_exp2_goprodata_full.mp4"
+start_frame = 1000
 model = YOLO(MODEL_PATH)
 
+# Load the YOLO26 model
+model = YOLO(MODEL_PATH)
 
-def bytetrack(path, target_classes=None, start_frame=0):
-    cap = cv2.VideoCapture(path)
-    if not cap.isOpened():
-        print("Error opening video file")
-        return
+# Open the video file
+cap = cv2.VideoCapture(VIDEO_PATH)
 
-    # Jump to desired starting frame
-    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-    track_id_colors = {}
+# Store the track history
+track_history = defaultdict(lambda: [])
 
-    frame_id = start_frame
+# Loop through the video frames
+while cap.isOpened():
+    # Read a frame from the video
+    success, frame = cap.read()
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break  # End of video
+    if success:
+        # Run YOLO26 tracking on the frame, persisting tracks between frames
+        result = model.track(frame, 
+                             tracker= "test_botsort.yaml", persist=True)[0]
 
-        # Run tracking on this single frame
-        results = model.track(
-            frame,
-            tracker="test_botsort.yaml",
-            persist=True,
-            classes=target_classes
-        )
-
-        result = results[0]  # Single-frame result
-
-        if result.boxes is not None and result.boxes.id is not None:
+        # Get the boxes and track IDs
+        if result.boxes and result.boxes.is_track:
+            boxes = result.boxes.xywh.cpu()
             track_ids = result.boxes.id.int().cpu().tolist()
-            bboxes = result.boxes.xyxy.cpu().tolist()
-            class_ids = result.boxes.cls.int().cpu().tolist()
 
-            for track_id, bbox, cls_id in zip(track_ids, bboxes, class_ids):
-                if cls_id not in target_classes:
-                    continue
+            # Visualize the result on the frame
+            frame = result.plot()
 
-                if track_id not in track_id_colors:
-                    track_id_colors[track_id] = (
-                        random.randint(0, 255),
-                        random.randint(0, 255),
-                        random.randint(0, 255)
-                    )
-                color = track_id_colors[track_id]
+            # Plot the tracks
+            for box, track_id in zip(boxes, track_ids):
+                x, y, w, h = box
+                track = track_history[track_id]
+                track.append((float(x), float(y)))  # x, y center point
+                """if len(track) > 30:  # retain 30 tracks for 30 frames
+                    track.pop(0)"""
 
-                x1, y1, x2, y2 = map(int, bbox)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
-
-                text = f"ID: {track_id}"
-                (text_width, text_height), baseline = cv2.getTextSize(
-                    text, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 2
-                )
-
-                bg_x1 = x1
-                bg_y1 = max(0, y1 - 15 - text_height)
-                bg_x2 = x1 + text_width
-                bg_y2 = y1 - 15 + baseline
-
-                cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), (255, 255, 255), -1)
-                cv2.putText(frame, text, 
-                            (x1, y1 - 15), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 
-                            1.0, color, 2)
+                # Draw the tracking lines
+                points = np.hstack(track).astype(np.int32).reshape((-1, 1, 2))
+                cv2.polylines(frame, [points], isClosed=False, color=(230, 230, 230), thickness=10)
 
         scale = 0.5
         h,w = frame.shape[:2]
@@ -85,13 +64,13 @@ def bytetrack(path, target_classes=None, start_frame=0):
 
         cv2.imshow("YOLO ByteTrack", display_frame)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        # Break the loop if 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord("q"):
             break
+    else:
+        # Break the loop if the end of the video is reached
+        break
 
-        print(f"Processed frame {frame_id}", end='\r')
-        frame_id += 1
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-bytetrack(VIDEO_PATH, target_classes=[0], start_frame = 6000)
+# Release the video capture object and close the display window
+cap.release()
+cv2.destroyAllWindows()
