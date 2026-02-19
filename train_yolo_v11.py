@@ -4,7 +4,7 @@ from pathlib import Path
 
 def train_yolov11(
     data_yaml: str,
-    model_size: str = "yolo11s.pt",
+    model_size: str = "yolo26n.pt",
     project_dir: str = "runs",
     exp_name: str = "test",
     epochs: int = 100,
@@ -32,22 +32,22 @@ def train_yolov11(
         # YOLO INTERNAL AUGMENTATION
         # -------------------
         mosaic=1.0,
-        mixup=0.2,
+        mixup=0,
         copy_paste=0.0,
         hsv_h=0.015,
         hsv_s=0.7,
         hsv_v=0.4,
-        translate=0.1,
-        scale=0.5,
+        translate=0.2,
+        scale=0,
         fliplr=0.5,
-        flipud=0.0,
-        degrees=0.0,
+        flipud=0.5,
+        degrees=0.2,
 
         # -------------------
         # TRAINING BEHAVIOR
         # -------------------
         close_mosaic=10,
-        patience=20,
+        patience=0,
         workers=8,
         cache=False,
     )
@@ -56,17 +56,26 @@ def train_yolov11(
 
 
 if __name__ == "__main__":
-    DATA_YAML = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes/dataset.yaml"
+
+    import torch
+    print("cuda available", torch.cuda.is_available())
+    print("cuda version", torch.version.cuda)
+    print("GPU count", torch.cuda.device_count())
+    print("device name", torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)
+
+
+
+    DATA_YAML = "C:/Users/jwelsh/YOLO/training data/by_exp_0-49/dataset.yaml"
 
     best_model = train_yolov11(
         data_yaml=DATA_YAML,
-        model_size= "yolo11m.pt", #"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/trying stuff out/using_pretrained_model/best.pt",
+        model_size= "yolo26n.pt",
         epochs=500,
-        batch=16,
-        imgsz=800,
+        batch=1,
+        imgsz=3000,
         device= "0",
-        exp_name= "yolo11m",
-        project_dir= "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes"
+        exp_name= "first_test_new_data_format",
+        project_dir= "C:/Users/jwelsh/YOLO/results"
     )
 
     print("Training finished.")
