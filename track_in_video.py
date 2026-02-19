@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import cv2
 import numpy as np
+import csv
 
 from ultralytics import YOLO
 
@@ -47,9 +48,6 @@ def dim_color(color, factor=0.9):
     """Darken a BGR color by a factor (0-1)."""
     return tuple(int(c * factor) for c in color)
 
-import numpy as np
-import cv2
-
 def compute_orientation(crop):
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
 
@@ -75,28 +73,109 @@ def compute_orientation(crop):
 
     return angle_deg
 
+def compute_orientation_fitline(crop):
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+
+    # Blur slightly to reduce noise
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Use Canny edges instead of raw threshold
+    edges = cv2.Canny(gray, 50, 150)
+
+    # Get edge pixel coordinates
+    ys, xs = np.where(edges > 0)
+
+    if len(xs) < 20:
+        return None  # Not enough edge points
+
+    points = np.column_stack((xs, ys)).astype(np.float32)
+
+    # Fit a line through the points
+    # Returns: vx, vy (direction vector), x0, y0 (a point on the line)
+    [vx, vy, x0, y0] = cv2.fitLine(points, cv2.DIST_L2, 0, 0.01, 0.01)
+
+    # Convert direction vector to angle
+    angle = np.arctan2(vy, vx)
+    angle_deg = np.degrees(angle)
+
+    # Normalize to 0–180°
+    if angle_deg < 0:
+        angle_deg += 180
+    angle_deg = angle_deg % 180
+
+    return float(angle_deg)
+
+
+#save data of interest in each frame
+csv_file = open("tracking_data.csv", "w", newline="")
+writer = csv.writer(csv_file)
+writer.writerow(["track_id", "frame", "center_x", "center_y", "width", "height", "confidence", "class_id", "class_name", "orientation"])
+
+frame_id = 0
 
 # Loop through the video frames
 while cap.isOpened():
     # Read a frame from the video
     success, frame = cap.read()
-
+     
     if success:
         # Run YOLO26 tracking on the frame, persisting tracks between frames
         result = model.track(frame, 
                              tracker= "test_botsort.yaml", persist=True, verbose = False)[0]
 
         if result.boxes and result.boxes.is_track:
-            boxes = result.boxes.xywh.cpu()
+            boxes_xywh = result.boxes.xywh.cpu()
+            boxes_xyxy = result.boxes.xyxy.cpu()
             track_ids = result.boxes.id.int().cpu().tolist()
-
-            frame = result.plot(labels=False, conf=False)
+            confs = result.boxes.conf.cpu().tolist()
+            classes = result.boxes.cls.int().cpu().tolist()
 
             active_ids = set(track_ids)
 
-            # ---- UPDATE TRACKS ----
-            for box, track_id in zip(boxes, track_ids):
+            for box, box_xyxy, track_id, conf, cls in zip(boxes_xywh, boxes_xyxy, track_ids, confs, classes):
                 x, y, w, h = box
+                x1, y1, x2, y2 = box_xyxy
+
+
+                # Convert to ints for cropping
+                x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+
+                # Clamp to image boundaries
+                x1 = max(0, x1)
+                y1 = max(0, y1)
+                x2 = min(frame.shape[1], x2)
+                y2 = min(frame.shape[0], y2)
+
+                crop = frame[y1:y2, x1:x2]
+
+                orientation = None
+                if crop.size > 0:
+                    orientation = compute_orientation_fitline(crop)
+
+                x_out = float(x * 2.5)
+                y_out = -1*float(y * 2.5 - 2000)
+                w_out = float(w * 2.5)
+                h_out = float(h * 2.5)
+
+                class_name = model.names[cls]
+
+
+
+                writer.writerow([
+                    track_id,
+                    frame_id,
+                    x_out,
+                    y_out,
+                    w_out,
+                    h_out,
+                    float(conf),
+                    int(cls),
+                    class_name,
+                    orientation
+                ])
+
+                print(track_id, frame_id, x_out, y_out, w_out, h_out, float(conf), int(cls), class_name, orientation)
+
 
                 # Assign a random color if we haven't seen this ID before
                 if track_id not in track_colors:
@@ -109,6 +188,8 @@ while cap.isOpened():
                 # Update histories
                 track_history[track_id].append((float(x), float(y)))
                 all_tracks[track_id].append((float(x), float(y)))
+
+            frame = result.plot(labels=False, conf=False)
 
             # ---- DRAW ALL TRACKS (ACTIVE = BRIGHT, DEAD = DIM) ----
             for track_id, track in all_tracks.items():
@@ -142,6 +223,8 @@ while cap.isOpened():
         display_frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
         cv2.imshow("YOLO ByteTrack", display_frame)
+
+        frame_id += 1
 
         if save == True:
             out.write(frame)
