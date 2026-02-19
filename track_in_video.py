@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import cv2
 import numpy as np
+import csv
 
 from ultralytics import YOLO
 
@@ -9,12 +10,14 @@ from ultralytics import YOLO
 # Config
 # -----------------------------
 
-MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_one_class/yolo11m/weights/best.pt"
-VIDEO_PATH = "D:/Videos/20240529_exp2_goprodata_full.mp4"
-start_frame = 1000
-model = YOLO(MODEL_PATH)
+MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes_vconcat/yolo26n2/weights/best.pt"
+VIDEO_PATH = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/20240529_exp2_goprodata_short.mp4"
 
-# Load the YOLO26 model
+save = True
+OUTPUT_VIDEO = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/20240529_exp2_goprodata_short_with_tracks2.mp4"
+
+
+start_frame = 0
 model = YOLO(MODEL_PATH)
 
 # Open the video file
@@ -22,38 +25,195 @@ cap = cv2.VideoCapture(VIDEO_PATH)
 
 cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
+cap = cv2.VideoCapture(VIDEO_PATH)
+
+fps = cap.get(cv2.CAP_PROP_FPS)
+width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+out = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, fps, (width, height))
+
+
 # Store the track history
 track_history = defaultdict(lambda: [])
+
+# Store all tracks that have ever existed (even if killed)
+all_tracks = defaultdict(lambda: [])
+
+# Assign a persistent random color to each track ID
+track_colors = {}
+
+def dim_color(color, factor=0.9):
+    """Darken a BGR color by a factor (0-1)."""
+    return tuple(int(c * factor) for c in color)
+
+def compute_orientation(crop):
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+
+    # Threshold (adjust if needed)
+    _, thresh = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY)
+
+    # Get coordinates of white pixels
+    ys, xs = np.where(thresh > 0)
+
+    if len(xs) < 10:
+        return None  # Not enough pixels
+
+    coords = np.column_stack((xs, ys)).astype(np.float32)
+
+    # PCA
+    mean, eigenvectors = cv2.PCACompute(coords, mean=None)
+
+    # First eigenvector = major axis direction
+    vx, vy = eigenvectors[0]
+
+    angle = np.arctan2(vy, vx)
+    angle_deg = np.degrees(angle)
+
+    return angle_deg
+
+def compute_orientation_fitline(crop):
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+
+    # Blur slightly to reduce noise
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Use Canny edges instead of raw threshold
+    edges = cv2.Canny(gray, 50, 150)
+
+    # Get edge pixel coordinates
+    ys, xs = np.where(edges > 0)
+
+    if len(xs) < 20:
+        return None  # Not enough edge points
+
+    points = np.column_stack((xs, ys)).astype(np.float32)
+
+    # Fit a line through the points
+    # Returns: vx, vy (direction vector), x0, y0 (a point on the line)
+    [vx, vy, x0, y0] = cv2.fitLine(points, cv2.DIST_L2, 0, 0.01, 0.01)
+
+    # Convert direction vector to angle
+    angle = np.arctan2(vy, vx)
+    angle_deg = np.degrees(angle)
+
+    # Normalize to 0–180°
+    if angle_deg < 0:
+        angle_deg += 180
+    angle_deg = angle_deg % 180
+
+    return float(angle_deg)
+
+
+#save data of interest in each frame
+csv_file = open("tracking_data.csv", "w", newline="")
+writer = csv.writer(csv_file)
+writer.writerow(["track_id", "frame", "center_x", "center_y", "width", "height", "confidence", "class_id", "class_name", "orientation"])
+
+frame_id = 0
 
 # Loop through the video frames
 while cap.isOpened():
     # Read a frame from the video
     success, frame = cap.read()
-
+     
     if success:
         # Run YOLO26 tracking on the frame, persisting tracks between frames
         result = model.track(frame, 
-                             tracker= "test_botsort.yaml", persist=True)[0]
+                             tracker= "test_botsort.yaml", persist=True, verbose = False)[0]
 
-        # Get the boxes and track IDs
         if result.boxes and result.boxes.is_track:
-            boxes = result.boxes.xywh.cpu()
+            boxes_xywh = result.boxes.xywh.cpu()
+            boxes_xyxy = result.boxes.xyxy.cpu()
             track_ids = result.boxes.id.int().cpu().tolist()
+            confs = result.boxes.conf.cpu().tolist()
+            classes = result.boxes.cls.int().cpu().tolist()
 
-            # Visualize the result on the frame
-            frame = result.plot()
+            active_ids = set(track_ids)
 
-            # Plot the tracks
-            for box, track_id in zip(boxes, track_ids):
+            for box, box_xyxy, track_id, conf, cls in zip(boxes_xywh, boxes_xyxy, track_ids, confs, classes):
                 x, y, w, h = box
-                track = track_history[track_id]
-                track.append((float(x), float(y)))  # x, y center point
-                """if len(track) > 30:  # retain 30 tracks for 30 frames
-                    track.pop(0)"""
+                x1, y1, x2, y2 = box_xyxy
 
-                # Draw the tracking lines
-                points = np.hstack(track).astype(np.int32).reshape((-1, 1, 2))
-                cv2.polylines(frame, [points], isClosed=False, color=(230, 230, 230), thickness=10)
+
+                # Convert to ints for cropping
+                x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+
+                # Clamp to image boundaries
+                x1 = max(0, x1)
+                y1 = max(0, y1)
+                x2 = min(frame.shape[1], x2)
+                y2 = min(frame.shape[0], y2)
+
+                crop = frame[y1:y2, x1:x2]
+
+                orientation = None
+                if crop.size > 0:
+                    orientation = compute_orientation_fitline(crop)
+
+                x_out = float(x * 2.5)
+                y_out = -1*float(y * 2.5 - 2000)
+                w_out = float(w * 2.5)
+                h_out = float(h * 2.5)
+
+                class_name = model.names[cls]
+
+
+
+                writer.writerow([
+                    track_id,
+                    frame_id,
+                    x_out,
+                    y_out,
+                    w_out,
+                    h_out,
+                    float(conf),
+                    int(cls),
+                    class_name,
+                    orientation
+                ])
+
+                print(track_id, frame_id, x_out, y_out, w_out, h_out, float(conf), int(cls), class_name, orientation)
+
+
+                # Assign a random color if we haven't seen this ID before
+                if track_id not in track_colors:
+                    track_colors[track_id] = (
+                        int(np.random.randint(50, 255)),  # B
+                        int(np.random.randint(50, 255)),  # G
+                        int(np.random.randint(50, 255)),  # R
+                    )
+
+                # Update histories
+                track_history[track_id].append((float(x), float(y)))
+                all_tracks[track_id].append((float(x), float(y)))
+
+            frame = result.plot(labels=False, conf=False)
+
+            # ---- DRAW ALL TRACKS (ACTIVE = BRIGHT, DEAD = DIM) ----
+            for track_id, track in all_tracks.items():
+                if len(track) > 1:
+                    points = np.hstack(track).astype(np.int32).reshape((-1, 1, 2))
+
+                    color = track_colors[track_id]
+
+                    # If this track is NOT active in this frame → make it dimmer
+                    if track_id not in active_ids:
+                        draw_color = dim_color(color, factor=0.5)  # <<< tweak this
+                        thickness = 4
+                    else:
+                        draw_color = color
+                        thickness = 8
+
+                    cv2.polylines(
+                        frame,
+                        [points],
+                        isClosed=False,
+                        color=draw_color,
+                        thickness=thickness,
+                    )
+
 
         scale = 0.5
         h,w = frame.shape[:2]
@@ -64,13 +224,19 @@ while cap.isOpened():
 
         cv2.imshow("YOLO ByteTrack", display_frame)
 
+        frame_id += 1
+
+        if save == True:
+            out.write(frame)
+
         # Break the loop if 'q' is pressed
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        if cv2.waitKey(10) & 0xFF == ord("q"):
             break
     else:
         # Break the loop if the end of the video is reached
         break
 
 # Release the video capture object and close the display window
+out.release()
 cap.release()
 cv2.destroyAllWindows()

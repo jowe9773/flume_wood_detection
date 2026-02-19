@@ -32,16 +32,16 @@ def train_yolov11(
         # YOLO INTERNAL AUGMENTATION
         # -------------------
         mosaic=1.0,
-        mixup=0,
-        copy_paste=0.0,
+        mixup=0.0,
+        copy_paste=0.1,
         hsv_h=0.015,
         hsv_s=0.7,
         hsv_v=0.4,
-        translate=0.2,
-        scale=0,
+        translate=0.1,
+        scale=0.0,
         fliplr=0.5,
         flipud=0.5,
-        degrees=0.2,
+        degrees=0.1,
 
         # -------------------
         # TRAINING BEHAVIOR
@@ -56,26 +56,17 @@ def train_yolov11(
 
 
 if __name__ == "__main__":
-
-    import torch
-    print("cuda available", torch.cuda.is_available())
-    print("cuda version", torch.version.cuda)
-    print("GPU count", torch.cuda.device_count())
-    print("device name", torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)
-
-
-
-    DATA_YAML = "C:/Users/jwelsh/YOLO/training data/by_exp_0-49/dataset.yaml"
+    DATA_YAML = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes_vconcat/dataset.yaml"
 
     best_model = train_yolov11(
         data_yaml=DATA_YAML,
         model_size= "yolo26n.pt",
         epochs=500,
         batch=1,
-        imgsz=3000,
+        imgsz=3000, 
         device= "0",
-        exp_name= "first_test_new_data_format",
-        project_dir= "C:/Users/jwelsh/YOLO/results"
+        exp_name= "yolo26s_long_run",
+        project_dir= "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes_vconcat"
     )
 
     print("Training finished.")
