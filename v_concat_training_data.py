@@ -7,16 +7,14 @@ from pathlib import Path
 # CONFIG — EDIT THESE
 # -----------------------------
 
-INPUT_DATASET = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes"
+INPUT_DATASET = "C:/Users/josie/local_data/YOLO/training_data/800_single_img"
+OUTPUT_DATASET = "C:/Users/josie/local_data/YOLO/training_data/400_merged_vert"
 
-OUTPUT_DATASET = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes_vconcat"
+RESIZE_WIDTH = None
+STITCH_MODE = "vertical"
 
-
-RESIZE_WIDTH = None   # set to None to keep original size
-STITCH_MODE = "vertical"  # "vertical" recommended for your 3900x1600 case
-
-# which splits to process
-SPLITS = ["train", "val"]  # add "test" if needed
+VISUALIZE_CHECK = True
+DISPLAY_TIME_MS = 1000  # 1 second
 
 # -----------------------------
 # HELPER FUNCTIONS
@@ -34,36 +32,83 @@ def load_yolo_annotations(txt_path):
                 boxes.append((int(cls), xc, yc, w, h))
     return boxes
 
+
 def save_yolo_annotations(boxes, txt_path):
     with open(txt_path, "w") as f:
         for cls, xc, yc, w, h in boxes:
             f.write(f"{cls} {xc:.6f} {yc:.6f} {w:.6f} {h:.6f}\n")
+
 
 def resize_keep_aspect(img, target_width):
     h, w = img.shape[:2]
     scale = target_width / w
     return cv2.resize(img, (target_width, int(h * scale)))
 
+def draw_yolo_boxes(image, boxes, color=(0, 255, 0), thickness=2):
+    h, w = image.shape[:2]
+    img = image.copy()
+
+    for cls, xc, yc, bw, bh in boxes:
+        x_center = xc * w
+        y_center = yc * h
+        box_w = bw * w
+        box_h = bh * h
+
+        x1 = int(x_center - box_w / 2)
+        y1 = int(y_center - box_h / 2)
+        x2 = int(x_center + box_w / 2)
+        y2 = int(y_center + box_h / 2)
+
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness)
+        cv2.putText(
+            img,
+            str(cls),
+            (x1, max(0, y1 - 5)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+
+    return img
+
+
 # -----------------------------
-# PROCESS EACH SPLIT
+# MAIN LOOP — iterate experiments
 # -----------------------------
 
-for split in SPLITS:
+in_img_root = Path(INPUT_DATASET) / "images"
+in_lbl_root = Path(INPUT_DATASET) / "labels"
 
-    in_img_dir = Path(INPUT_DATASET) / "images" / split
-    in_lbl_dir = Path(INPUT_DATASET) / "labels" / split
+out_img_root = Path(OUTPUT_DATASET) / "images"
+out_lbl_root = Path(OUTPUT_DATASET) / "labels"
 
-    out_img_dir = Path(OUTPUT_DATASET) / "images" / split
-    out_lbl_dir = Path(OUTPUT_DATASET) / "labels" / split
+experiment_dirs = sorted([d for d in in_img_root.iterdir() if d.is_dir()])
+
+print(f"Found {len(experiment_dirs)} experiments")
+
+for exp_dir in experiment_dirs:
+
+    exp_name = exp_dir.name
+    print(f"/n=== Processing experiment: {exp_name} ===")
+
+    in_img_dir = in_img_root / exp_name
+    in_lbl_dir = in_lbl_root / exp_name
+
+    out_img_dir = out_img_root / exp_name
+    out_lbl_dir = out_lbl_root / exp_name
 
     out_img_dir.mkdir(parents=True, exist_ok=True)
     out_lbl_dir.mkdir(parents=True, exist_ok=True)
 
     image_paths = sorted(in_img_dir.glob("*.png"))
 
-    print(f"\nProcessing split: {split} — {len(image_paths)} images")
+    print(f"Images found: {len(image_paths)}")
 
-    # Stitch in pairs: (0,1), (2,3), (4,5)...
+    # Pair images: (0,1), (2,3), ...
+    pair_index = 0
+
     for i in range(0, len(image_paths) - 1, 2):
 
         img1_path = image_paths[i]
@@ -72,7 +117,6 @@ for split in SPLITS:
         lbl1_path = in_lbl_dir / (img1_path.stem + ".txt")
         lbl2_path = in_lbl_dir / (img2_path.stem + ".txt")
 
-        # Load images
         img1 = cv2.imread(str(img1_path))
         img2 = cv2.imread(str(img2_path))
 
@@ -86,17 +130,19 @@ for split in SPLITS:
             h1, w1 = img1.shape[:2]
             h2, w2 = img2.shape[:2]
 
-        # Stitch
+        # -----------------------------
+        # STITCH
+        # -----------------------------
         if STITCH_MODE == "vertical":
             if w1 != w2:
-                raise ValueError("Widths must match for vertical stitching.")
+                raise ValueError(f"Width mismatch in {exp_name}")
             stitched = np.vstack([img1, img2])
             new_h = h1 + h2
             new_w = w1
 
         elif STITCH_MODE == "horizontal":
             if h1 != h2:
-                raise ValueError("Heights must match for horizontal stitching.")
+                raise ValueError(f"Height mismatch in {exp_name}")
             stitched = np.hstack([img1, img2])
             new_h = h1
             new_w = w1 + w2
@@ -104,72 +150,77 @@ for split in SPLITS:
         else:
             raise ValueError("STITCH_MODE must be 'vertical' or 'horizontal'")
 
-        # Load annotations
+        # -----------------------------
+        # LOAD LABELS
+        # -----------------------------
         boxes1 = load_yolo_annotations(lbl1_path)
         boxes2 = load_yolo_annotations(lbl2_path)
 
         new_boxes = []
 
-        # -----------------------------
-        # FIXED: Adjust boxes from IMAGE 1 (top image)
-        # -----------------------------
+        # --- image 1 (top) ---
         for cls, xc, yc, w, h in boxes1:
-
-            # Convert normalized → pixel coords in image 1
             x_center_px = xc * w1
             y_center_px = yc * h1
 
-            if STITCH_MODE == "vertical":
-                # For top image: x stays the same, y stays the same
-                new_xc = x_center_px / new_w
-                new_yc = y_center_px / new_h
-                new_w_norm = w * (w1 / new_w)
-                new_h_norm = h * (h1 / new_h)
+            new_boxes.append((
+                cls,
+                x_center_px / new_w,
+                y_center_px / new_h,
+                w * (w1 / new_w),
+                h * (h1 / new_h),
+            ))
 
-            else:  # horizontal stitch
-                new_xc = x_center_px / new_w
-                new_yc = y_center_px / new_h
-                new_w_norm = w * (w1 / new_w)
-                new_h_norm = h * (h1 / new_h)
-
-            new_boxes.append((cls, new_xc, new_yc, new_w_norm, new_h_norm))
-
-        # -----------------------------
-        # Adjust boxes from IMAGE 2 (bottom image if vertical)
-        # -----------------------------
+        # --- image 2 (bottom) ---
         for cls, xc, yc, w, h in boxes2:
-
-            # Convert normalized → pixel coords in image 2
             x_center_px = xc * w2
             y_center_px = yc * h2
 
             if STITCH_MODE == "vertical":
-                # Shift DOWN by height of image 1
                 y_center_px += h1
-
-                new_xc = x_center_px / new_w
-                new_yc = y_center_px / new_h
-                new_w_norm = w * (w2 / new_w)
-                new_h_norm = h * (h2 / new_h)
-
-            else:  # horizontal
-                # Shift RIGHT by width of image 1
+            else:
                 x_center_px += w1
 
-                new_xc = x_center_px / new_w
-                new_yc = y_center_px / new_h
-                new_w_norm = w * (w2 / new_w)
-                new_h_norm = h * (h2 / new_h)
+            new_boxes.append((
+                cls,
+                x_center_px / new_w,
+                y_center_px / new_h,
+                w * (w2 / new_w),
+                h * (h2 / new_h),
+            ))
 
-            new_boxes.append((cls, new_xc, new_yc, new_w_norm, new_h_norm))
-
-        # Save outputs
-        out_img_name = f"stitched_{img1_path.stem}_{img2_path.stem}.jpg"
-        out_lbl_name = f"stitched_{img1_path.stem}_{img2_path.stem}.txt"
+        # -----------------------------
+        # SAVE
+        # -----------------------------
+        out_img_name = f"{exp_name}_pair{pair_index:02d}.png"
+        out_lbl_name = f"{exp_name}_pair{pair_index:02d}.txt"
+        pair_index += 1
 
         cv2.imwrite(str(out_img_dir / out_img_name), stitched)
         save_yolo_annotations(new_boxes, out_lbl_dir / out_lbl_name)
 
-        print(f"Stitched: {img1_path.name} + {img2_path.name} -> {out_img_name}")
+        # -----------------------------
+        # QUICK DISPLAY CHECK
+        # -----------------------------
+        if VISUALIZE_CHECK:
+            viz_img = draw_yolo_boxes(stitched, new_boxes)
 
-print("\n✅ Done stitching dataset!")
+            scale = 0.25
+            h,w = viz_img.shape[:2]
+            new_w = int(w*scale)
+            new_h = int(h*scale)
+
+            display_frame = cv2.resize(viz_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+            cv2.imshow("Stitch Check", display_frame)
+            key = cv2.waitKey(DISPLAY_TIME_MS)
+
+            # Optional: press 'q' to stop early
+            if key & 0xFF == ord("q"):
+                VISUALIZE_CHECK = False
+                cv2.destroyAllWindows()
+
+        print(f"Saved pair {pair_index:02d}")
+
+cv2.destroyAllWindows()
+print("/n✅ Done stitching dataset!")

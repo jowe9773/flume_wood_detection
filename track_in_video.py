@@ -10,11 +10,11 @@ from ultralytics import YOLO
 # Config
 # -----------------------------
 
-MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes_vconcat/yolo26n2/weights/best.pt"
-VIDEO_PATH = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/20240529_exp2_goprodata_short.mp4"
+MODEL_PATH = "C:/Users/josie/local_data/YOLO/models/first_test_new_data_format/first_test_new_data_format/weights/best.pt"
+VIDEO_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/20240529_exp2_goprodata_short.mp4"
 
 save = True
-OUTPUT_VIDEO = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/20240529_exp2_goprodata_short_with_tracks2.mp4"
+OUTPUT_VIDEO = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/20240529_exp2_goprodata_short_with_tracks4.mp4"
 
 
 start_frame = 0
@@ -28,12 +28,23 @@ cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 cap = cv2.VideoCapture(VIDEO_PATH)
 
 fps = cap.get(cv2.CAP_PROP_FPS)
+print(fps)
 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 out = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, fps, (width, height))
 
+# Assign a fixed color per class
+# BGR format!
+CLASS_COLOR_MAP = {
+    0: (180, 0, 180),   #int # purple 
+    1: (0, 140, 255),   #long # red-orange
+    2: (0, 200, 0)      #short # green 
+}
+
+def get_class_color(cls_id):
+    return CLASS_COLOR_MAP.get(cls_id, (255, 255, 255))  # fallback white
 
 # Store the track history
 track_history = defaultdict(lambda: [])
@@ -43,6 +54,7 @@ all_tracks = defaultdict(lambda: [])
 
 # Assign a persistent random color to each track ID
 track_colors = {}
+track_orientations = {}
 
 def dim_color(color, factor=0.9):
     """Darken a BGR color by a factor (0-1)."""
@@ -105,6 +117,62 @@ def compute_orientation_fitline(crop):
 
     return float(angle_deg)
 
+def compute_orientation_constrained(crop, w, h, prev_angle=None, smoothing=0.8):
+    """
+    Computes orientation constrained to the two bounding-box diagonals.
+
+    Args:
+        crop: image crop (BGR)
+        w, h: bounding box width and height
+        prev_angle: previous frame angle for this track (optional)
+        smoothing: 0-1 smoothing factor (higher = smoother)
+
+    Returns:
+        angle in degrees (0–180) or None
+    """
+
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(gray, 50, 150)
+
+    ys, xs = np.where(edges > 0)
+    if len(xs) < 20:
+        return None
+
+    points = np.column_stack((xs, ys)).astype(np.float32)
+
+    # Fit line to edge pixels
+    vx, vy, x0, y0 = cv2.fitLine(points, cv2.DIST_L2, 0, 0.01, 0.01)
+    line_vec = np.array([vx, vy]).flatten()
+    line_vec /= np.linalg.norm(line_vec)
+
+    # ---- Compute the two valid diagonals ----
+    d1 = np.array([w, h], dtype=np.float32)
+    d2 = np.array([w, -h], dtype=np.float32)
+
+    d1 /= np.linalg.norm(d1)
+    d2 /= np.linalg.norm(d2)
+
+    # ---- Compare alignment using dot product ----
+    score1 = abs(np.dot(line_vec, d1))
+    score2 = abs(np.dot(line_vec, d2))
+
+    if score1 > score2:
+        chosen = d1
+    else:
+        chosen = d2
+
+    angle = np.degrees(np.arctan2(chosen[1], chosen[0]))
+
+    if angle < 0:
+        angle += 180
+    angle = angle % 180
+
+    # ---- Optional temporal smoothing ----
+    if prev_angle is not None:
+        angle = smoothing * prev_angle + (1 - smoothing) * angle
+
+    return float(angle)
 
 #save data of interest in each frame
 csv_file = open("tracking_data.csv", "w", newline="")
@@ -149,8 +217,12 @@ while cap.isOpened():
                 crop = frame[y1:y2, x1:x2]
 
                 orientation = None
-                if crop.size > 0:
-                    orientation = compute_orientation_fitline(crop)
+                prev_angle = track_orientations.get(track_id, None)
+
+                orientation = compute_orientation_constrained(crop, w, h, prev_angle)
+
+                if orientation is not None:
+                    track_orientations[track_id] = orientation
 
                 x_out = float(x * 2.5)
                 y_out = -1*float(y * 2.5 - 2000)
@@ -189,13 +261,32 @@ while cap.isOpened():
                 track_history[track_id].append((float(x), float(y)))
                 all_tracks[track_id].append((float(x), float(y)))
 
-            frame = result.plot(labels=False, conf=False)
+            #if you want to plot the bounding box
+            frame = result.plot(labels=False, conf=False, line_width=2)
+
+            # ---------------- DRAW ORIENTATION LINE ----------------
+            if orientation is not None:
+                cx, cy = int(x), int(y)
+
+                # choose line length (good starting rule)
+                line_length = int(max(w, h))
+
+                theta = np.deg2rad(orientation)
+
+                dx = np.cos(theta) * line_length / 2
+                dy = np.sin(theta) * line_length / 2
+
+                pt1 = (int(cx - dx), int(cy - dy))
+                pt2 = (int(cx + dx), int(cy + dy))
+
+                color = get_class_color(int(cls))
+                cv2.line(frame, pt1, pt2, color, thickness=4)
+                    
 
             # ---- DRAW ALL TRACKS (ACTIVE = BRIGHT, DEAD = DIM) ----
             for track_id, track in all_tracks.items():
                 if len(track) > 1:
                     points = np.hstack(track).astype(np.int32).reshape((-1, 1, 2))
-
                     color = track_colors[track_id]
 
                     # If this track is NOT active in this frame → make it dimmer
@@ -206,16 +297,16 @@ while cap.isOpened():
                         draw_color = color
                         thickness = 8
 
-                    cv2.polylines(
+                    """cv2.polylines(
                         frame,
                         [points],
                         isClosed=False,
                         color=draw_color,
                         thickness=thickness,
-                    )
+                    )"""
 
 
-        scale = 0.5
+        scale = 0.4
         h,w = frame.shape[:2]
         new_w = int(w*scale)
         new_h = int(h*scale)
