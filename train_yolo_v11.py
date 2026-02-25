@@ -4,7 +4,7 @@ from pathlib import Path
 
 def train_yolov11(
     data_yaml: str,
-    model_size: str = "yolo11s.pt",
+    model_size: str = "yolo26n.pt",
     project_dir: str = "runs",
     exp_name: str = "test",
     epochs: int = 100,
