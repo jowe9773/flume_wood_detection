@@ -32,16 +32,16 @@ def train_yolo(
         # -------------------
         # YOLO INTERNAL AUGMENTATION
         # -------------------
-        mosaic=0.25,
+        mosaic=1.0,
         mixup=0.0,
         copy_paste=0.0,
-        hsv_h=0.0,
-        hsv_s=0.0,
-        hsv_v=0.0,
+        hsv_h=0.005,
+        hsv_s=0.25,
+        hsv_v=0.15,
         translate=0.0,
         scale=0.0,
         fliplr=0.0,
-        flipud=0.0,
+        flipud=0.5,
         degrees=0.0,
 
         # -------------------
@@ -69,13 +69,10 @@ if __name__ == "__main__":
 
         train_yolo(data_yaml= yaml,
                 model_size= "yolo26n.pt",
-                project_dir= "C:/Users/josie/local_data/YOLO/models/yolo26n/mosaic_0.25",
+                project_dir= "C:/Users/josie/local_data/YOLO/models/yolo26n/mosaic_1_cp_0_hsv_low_flipud_05",
                 exp_name= f"Fold_{fold}",
                 epochs= 50,
                 PATIENCE= 0,
                 imgsz= 3008,
                 batch= 1,
                 device= 0)
-    
-    save_fold_metrics(base_dir= "C:/Users/josie/local_data/YOLO/models/yolo26n/mosaic_0.25", output_fn= "C:/Users/josie/local_data/YOLO/models/yolo26n/mosaic_025", map_col= "metrics/mAP50(B)")
-

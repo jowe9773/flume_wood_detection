@@ -64,13 +64,13 @@ if __name__ == "__main__":
     best_model = train_yolo(
         data_yaml=DATA_YAML,
         model_size= "yolo26n.pt",
-        epochs=500,
+        epochs=50,
         batch=1,
         imgsz=3000, 
         device= "0",
         exp_name= "Fold_8",
-        project_dir= "C:/Users/josie/local_data/YOLO/models/yolo26n",
-        PATIENCE=50
+        project_dir= "C:/Users/josie/local_data/YOLO/models/yolo26n/mosaic_1_cp_0_hsv_low",
+        PATIENCE=0
     )
 
     print("Training finished.")

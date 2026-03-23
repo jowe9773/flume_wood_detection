@@ -7,14 +7,23 @@ from ultralytics import YOLO
 # -----------------------------
 # Config
 # -----------------------------
-MODEL_PATH = "C:/Users/josie/local_data/YOLO/models/yolo26n/fold_1/weights/best.pt"
-VIDEO_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/20240529_exp2_goprodata_short.mp4"
+MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/yolo26n/full_train/final/weights/best.pt"
+
+#uncongested
+VIDEO_PATH = "D:/Videos/20240530_exp1_goprodata_full.mp4"
+
+#conested
+#VIDEO_PATH = "D:/Videos/20240711_exp1_goprodata_full.mp4"
+
+test = "ht030"
+
+BOTSORT_FILE = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/bostort_files/{test}_botsort.yaml"
 
 save = True
-OUTPUT_VIDEO = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/20240529_exp2_goprodata_short_with_tracks_DIAGONAL.mp4"
-tracking_data_output_fn = "tracking_data.csv"
-
-start_frame = 0
+OUTPUT_VIDEO = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/{test}_uc_tracks_and_bb.mp4"
+tracking_data_output_fn = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/{test}_uc_tracking_data.csv"
+start_frame = 24*60*5
+max_frames_processed = 24*60*2
 
 # -----------------------------
 # Load Model
@@ -28,11 +37,12 @@ cap = cv2.VideoCapture(VIDEO_PATH)
 cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
 fps = cap.get(cv2.CAP_PROP_FPS)
+print(fps)
 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-out = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, fps, (width, height))
+out = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, 24, (width, height))
 
 # -----------------------------
 # Track Memory
@@ -156,10 +166,11 @@ while cap.isOpened():
 
     results = model.track(
         frame,
-        tracker="test_botsort.yaml",
+        tracker=BOTSORT_FILE,
         persist=True,
         verbose=False
     )[0]
+    print(frame_id)
 
     if results.boxes and results.boxes.is_track:
 
@@ -190,14 +201,20 @@ while cap.isOpened():
                     crop, float(w), float(h), track_id
                 )
 
+            scaling_factor = 2.5
+            tp_x = x * scaling_factor
+            tp_y = (y * scaling_factor * -1) + 2000
+            ts_w = w * scaling_factor
+            ts_h = h * scaling_factor
+            
             # Save CSV
             writer.writerow([
                 track_id,
                 frame_id,
-                float(x),
-                float(y),
-                float(w),
-                float(h),
+                float(tp_x),
+                float(tp_y),
+                float(ts_w),
+                float(ts_h),
                 float(conf),
                 int(cls),
                 model.names[int(cls)],
@@ -207,43 +224,58 @@ while cap.isOpened():
             #append location of bb center to the track history
             track_history[track_id].append((int(x), int(y)))
 
-            # shorten track history
-            if len(track_history[track_id]) > 50:
-                track_history[track_id].pop(0)
 
-            # Draw bounding box
-            #cv2.rectangle(frame, (x1, y1), (x2, y2), track_colors[track_id], 3)
             
-            color = get_class_color(int(cls))
-            # Draw orientation line
-            if orientation is not None:
-                cx, cy = int(x), int(y)
-                line_length = int(max(w, h))
-                theta = np.deg2rad(orientation)
-
-                dx = np.cos(theta) * line_length / 2
-                dy = np.sin(theta) * line_length / 2
-
-                pt1 = (int(cx - dx), int(cy - dy))
-                pt2 = (int(cx + dx), int(cy + dy))
-
-                cv2.line(frame, pt1, pt2,
-                         color, 4)
             
-            # ---- DRAW TRACK POLYLINES ----
-            for tid, points in track_history.items():
-                if len(points) > 1:
-                    pts = np.array(points, dtype=np.int32).reshape((-1, 1, 2))
-                    color = get_track_color(tid)
+            def draw_bounding_box(frame, x1, y1, x2, y2, color):
+                # Draw bounding box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
+            
+            def draw_orientation_line(x, y, w, h, orientation, frame, color):
+                # Draw orientation line
+                if orientation is not None:
+                    cx, cy = int(x), int(y)
+                    line_length = int(max(w, h))
+                    theta = np.deg2rad(orientation)
 
-                    cv2.polylines(
-                        frame,
-                        [pts],
-                        isClosed=False,
-                        color=color,
-                        thickness=4
+                    dx = np.cos(theta) * line_length / 2
+                    dy = np.sin(theta) * line_length / 2
+
+                    pt1 = (int(cx - dx), int(cy - dy))
+                    pt2 = (int(cx + dx), int(cy + dy))
+
+                    cv2.line(frame, pt1, pt2,
+                            color, 4)
+                    
+            def draw_traces(track_history, frame, color, line_thickness =4, trailing = 250):
+                
+                if trailing != 0:
+                    # shorten track history
+                    if len(track_history[track_id]) > trailing:
+                        track_history[track_id].pop(0)
+
+                # ---- DRAW TRACK POLYLINES ----
+                for tid, points in track_history.items():
+                    if len(points) > 1:
+                        pts = np.array(points, dtype=np.int32).reshape((-1, 1, 2))
+                        color = get_track_color(tid)
+
+                        cv2.polylines(
+                            frame,
+                            [pts],
+                            isClosed=False,
+                            color=color,
+                            thickness=line_thickness
                     )
+            
+            #draw things you want to be overlaying the image
+            bbox_color = get_class_color(int(cls))
+            draw_bounding_box(frame, x1, y1, x2, y2, bbox_color)
+            #draw_orientation_line(x,y,w,h,orientation, frame, bbox_color)
 
+            trace_color = get_track_color(track_id)
+            draw_traces(track_history, frame, trace_color, line_thickness= 4, trailing=0)
+                
     # Resize for display
     scale = 0.4
     display_frame = cv2.resize(
@@ -259,7 +291,10 @@ while cap.isOpened():
 
     frame_id += 1
 
-    if cv2.waitKey(10) & 0xFF == ord("q"):
+    if frame_id > max_frames_processed:
+        break
+
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
 # -----------------------------

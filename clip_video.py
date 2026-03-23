@@ -3,12 +3,12 @@ import cv2
 # -----------------------------
 # Config (EDIT THESE)
 # -----------------------------
-date = 20240529
-INPUT_VIDEO = f"D:/Videos/{date}_exp2_goprodata_full.mp4"
-OUTPUT_VIDEO = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/{date}_exp2_goprodata_short.mp4"
+date = 20240530
+INPUT_VIDEO = f"D:/Videos/{date}_exp1_goprodata_full.mp4"
+OUTPUT_VIDEO = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/{date}_exp1_5-7min.mp4"
 
-START_SEC = 45.0   # start time in seconds
-END_SEC = 60 + START_SEC     # end time in seconds
+START_SEC = 300   # start time in seconds
+END_SEC = 120 + START_SEC     # end time in seconds
 # -----------------------------
 
 cap = cv2.VideoCapture(INPUT_VIDEO)

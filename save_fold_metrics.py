@@ -70,8 +70,8 @@ if __name__ == "__main__":
     # -----------------------------
     # CONFIG — edit this
     # -----------------------------
-    BASE_DIR = Path(r"C:/Users/josie/local_data/YOLO/models/yolo26n/baseline")  # folder containing Fold_* folders
-    OUTPUT_XLSX = BASE_DIR / "metrics.xlsx"
-    MAP_COL = "metrics/mAP50(B)"
+    BASE_DIR = Path(r"C:/Users/josie/local_data/YOLO/models/yolo26n/mosaic_1_cp_0_hsv_low_flipud_05")  # folder containing Fold_* folders
+    OUTPUT_XLSX = BASE_DIR / "mosaic_1_cp_0_hsv_low_flipud_05_metrics.xlsx"
+    MAP_COL = "metrics/mAP50(B)"  
 
     save_fold_metrics(BASE_DIR, OUTPUT_XLSX, MAP_COL)
