@@ -10,19 +10,19 @@ from ultralytics import YOLO
 MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/yolo26n/full_train/final/weights/best.pt"
 
 #uncongested
-VIDEO_PATH = "D:/Videos/20240530_exp1_goprodata_full.mp4"
+VIDEO_PATH = "D:/Videos/20240731_exp1_goprodata_full.mp4"
 
 #conested
 #VIDEO_PATH = "D:/Videos/20240711_exp1_goprodata_full.mp4"
 
 test = "ht030"
 
-BOTSORT_FILE = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/bostort_files/{test}_botsort.yaml"
+BOTSORT_FILE = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/bostort_files/botsort_by_claude.yaml"
 
 save = True
-OUTPUT_VIDEO = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/{test}_uc_tracks_and_bb.mp4"
-tracking_data_output_fn = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/{test}_uc_tracking_data.csv"
-start_frame = 24*60*5
+OUTPUT_VIDEO = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/botsort_by_claude_uc_tracks_and_bb.mp4"
+tracking_data_output_fn = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/botsort_by_claude_uc_tracking_data.csv"
+start_frame = 24*60*5 + 100
 max_frames_processed = 24*60*2
 
 # -----------------------------
@@ -168,7 +168,8 @@ while cap.isOpened():
         frame,
         tracker=BOTSORT_FILE,
         persist=True,
-        verbose=False
+        verbose=False,
+        imgsz=3008 
     )[0]
     print(frame_id)
 
@@ -267,11 +268,41 @@ while cap.isOpened():
                             color=color,
                             thickness=line_thickness
                     )
+
+            def draw_track_id(frame, track_id, x1, y1, color):
+                label = f"ID {track_id}"
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.7
+                thickness = 2
+
+                (w, h), _ = cv2.getTextSize(label, font, font_scale, thickness)
+
+                # Background rectangle
+                cv2.rectangle(
+                    frame,
+                    (x1, y1 - h - 10),
+                    (x1 + w, y1),
+                    color,
+                    -1
+                )
+
+                # Text (white for contrast)
+                cv2.putText(
+                    frame,
+                    label,
+                    (x1, y1 - 5),
+                    font,
+                    font_scale,
+                    (255, 255, 255),
+                    thickness,
+                    cv2.LINE_AA
+                )
             
             #draw things you want to be overlaying the image
             bbox_color = get_class_color(int(cls))
             draw_bounding_box(frame, x1, y1, x2, y2, bbox_color)
             #draw_orientation_line(x,y,w,h,orientation, frame, bbox_color)
+            draw_track_id(frame, track_id, x1, y1, bbox_color)
 
             trace_color = get_track_color(track_id)
             draw_traces(track_history, frame, trace_color, line_thickness= 4, trailing=0)
