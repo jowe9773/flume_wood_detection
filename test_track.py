@@ -7,14 +7,15 @@ from ultralytics import YOLO
 # Config
 # -----------------------------
 MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/yolo26n/full_train/final/weights/best.pt"
-VIDEO_PATH = "D:/Videos/20240530_exp1_goprodata_full.mp4"
-BOTSORT_FILE = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/bostort_files/botsort_by_claude.yaml"
 
-CONF_THRESHOLD = 0.1       # threshold for displaying all detections (untracked)
+VIDEO_PATH = "D:/Videos/20240808_exp1_goprodata_full.mp4"
+BOTSORT_FILE = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/bostort_files/test.yaml"
+
+CONF_THRESHOLD = 0.05       # threshold for displaying all detections (untracked)
 MAX_FRAMES_PROCESSED = 24*60*2
-TRACK_HISTORY_LENGTH = 250  # how long to draw past track points
+TRACK_HISTORY_LENGTH = 48  # how long to draw past track points
 
-start_frame = 24*60*5 + 100
+start_frame = 24*60*3.1
 
 # -----------------------------
 # Class Colors (BGR)

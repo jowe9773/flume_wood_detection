@@ -2,7 +2,7 @@ import plotly.express as px
 import pandas as pd
 
 
-df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/botsort_by_claude_uc_tracking_data.csv")
+df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/baseline/test_uc_tracking_data.csv")
 df = df.sort_values("frame").reset_index(drop=True)
 
 

@@ -10,20 +10,19 @@ from ultralytics import YOLO
 MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/yolo26n/full_train/final/weights/best.pt"
 
 #uncongested
-VIDEO_PATH = "D:/Videos/20240731_exp1_goprodata_full.mp4"
+VIDEO_PATH = "D:/Videos/20240808_exp1_goprodata_full.mp4"
 
 #conested
 #VIDEO_PATH = "D:/Videos/20240711_exp1_goprodata_full.mp4"
 
-test = "ht030"
 
-BOTSORT_FILE = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/bostort_files/botsort_by_claude.yaml"
+BOTSORT_FILE = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/bostort_files/test.yaml"
 
-save = True
-OUTPUT_VIDEO = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/botsort_by_claude_uc_tracks_and_bb.mp4"
-tracking_data_output_fn = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/botsort_by_claude_uc_tracking_data.csv"
-start_frame = 24*60*5 + 100
-max_frames_processed = 24*60*2
+save = False
+OUTPUT_VIDEO = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/full_20250808_exp1/tracks_and_bb.mp4"
+tracking_data_output_fn = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/full_20250808_exp1/uc_tracking_data.csv"
+start_frame = 24*60*3
+max_frames_processed = 24*60*57
 
 # -----------------------------
 # Load Model
@@ -153,7 +152,7 @@ writer.writerow(["track_id", "frame", "center_x", "center_y",
                  "width", "height", "confidence",
                  "class_id", "class_name", "orientation"])
 
-frame_id = 0
+frame_id = start_frame
 
 # -----------------------------
 # Main Loop
@@ -315,14 +314,14 @@ while cap.isOpened():
         interpolation=cv2.INTER_AREA
     )
 
-    cv2.imshow("YOLO Diagonal Tracking", display_frame)
+    #cv2.imshow("YOLO Diagonal Tracking", display_frame)
 
     if save:
         out.write(frame)
 
     frame_id += 1
 
-    if frame_id > max_frames_processed:
+    if frame_id > start_frame + max_frames_processed:
         break
 
     if cv2.waitKey(1) & 0xFF == ord("q"):

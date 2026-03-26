@@ -2,7 +2,6 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 import warnings
-from pprint import pprint
 
 # -----------------------------
 # FUNCTION DEFINITIONS
@@ -22,19 +21,8 @@ def build_track_info(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     
     for tid, tdf in tracks.items():
-        if len(tdf) < 2: 
-            #print(f"Trace {tid} only has {len(tdf)} points, removing from data")
-            continue
-
         start = tdf.iloc[0]
-        one_from_end = tdf.iloc[-2]
         end = tdf.iloc[-1]
-
-        #find velocity between last two points in track
-        point_1 = np.array((one_from_end.center_x, one_from_end.center_y))
-        point_2 = np.array((end.center_x, end.center_y))
-
-        velocity = (point_2-point_1)/ (end.frame - one_from_end.frame)
         
         rows.append({
             "trace_id": tid,
@@ -46,36 +34,10 @@ def build_track_info(df: pd.DataFrame) -> pd.DataFrame:
             "end_y": end.center_y,
             "class_id": end.class_name,
             "duration": end.frame - start.frame,
-            "end_velocity": velocity
         })
     
     df = pd.DataFrame(rows)
     return df
-
-def update_trace_ids(matches_df):
-    # Build a mapping from upstream to downstream
-    match_dict = dict(zip(matches_df["us_trace_id"], matches_df["ds_trace_id"]))
-
-    # Track which original track_id should be the merged id
-    track_to_merged = {}
-
-    for us in matches_df["us_trace_id"]:
-        merged_id = us
-        current = us
-        
-        # Follow the chain downstream until there is no downstream match
-        while pd.notna(match_dict.get(current)):
-            current = match_dict[current]
-            track_to_merged[current] = merged_id  # map downstream trace to upstream merged id
-
-    # Create new dataframe with merged track_ids
-    complete_traces = all_df.copy()
-    complete_traces["track_id"] = complete_traces["track_id"].map(lambda x: track_to_merged.get(x, x))
-
-    # Optional: sort by track_id and frame
-    complete_traces = complete_traces.sort_values(["track_id", "frame"]).reset_index(drop=True)
-    
-    return complete_traces
 
 def display_traces_interactive(all_points_df, x='center_x', y='center_y', color='track_id', line_group='track_id', hover_data=['track_id'], markers=True):
     # Plot lines for each track_id
@@ -95,6 +57,121 @@ def display_traces_interactive(all_points_df, x='center_x', y='center_y', color=
 
     fig.update_layout(title='Interactive Trace Lines')
     return fig
+
+def find_possible_matches_for_trace(row, trace_metadata, max_frames=12, max_dist=400):
+
+    print(f"Trace {row.trace_id}")   
+
+def build_complete_traces(matches_df, all_points_df):
+    """
+    Combine fragmented traces into continuous tracks using upstream/downstream matches.
+
+    Parameters
+    ----------
+    matches_df : pd.DataFrame
+        Must contain columns: ['us_trace_id', 'ds_trace_id']
+    all_points_df : pd.DataFrame
+        Must contain 'track_id' column + detection data
+
+    Returns
+    -------
+    complete_traces : pd.DataFrame
+        Same format as all_points_df, but with merged track_ids
+    chains : list of lists
+        The trace chains that were constructed
+    """
+
+    # -------------------------
+    # 1. Build mapping (us -> ds)
+    # -------------------------
+    mapping = dict(
+        matches_df.dropna(subset=["ds_trace_id"])
+                .set_index("us_trace_id")["ds_trace_id"]
+    )
+
+    # -------------------------
+    # 2. Find start nodes
+    # -------------------------
+    all_us = set(matches_df["us_trace_id"])
+    all_ds = set(matches_df["ds_trace_id"].dropna())
+
+    start_nodes = all_us - all_ds
+
+    # -------------------------
+    # 3. Chain builder
+    # -------------------------
+    def build_chain(start):
+        chain = [start]
+        visited = set(chain)
+
+        while chain[-1] in mapping:
+            nxt = mapping[chain[-1]]
+
+            # prevent infinite loops (just in case)
+            if nxt in visited:
+                break
+
+            chain.append(nxt)
+            visited.add(nxt)
+
+        return chain
+
+    # -------------------------
+    # 4. Build all chains
+    # -------------------------
+    chains = [build_chain(start) for start in start_nodes]
+
+    # -------------------------
+    # 5. Merge traces
+    # -------------------------
+    merged_dfs = []
+    new_track_id = 0
+
+    for chain in chains:
+        subset = all_points_df[
+            all_points_df["track_id"].isin(chain)
+        ].copy()
+
+        if subset.empty:
+            continue
+
+        subset = subset.sort_values("frame")
+        subset["track_id"] = chain[0]
+
+        merged_dfs.append(subset)
+        new_track_id += 1
+
+    # -------------------------
+    # 6. Handle unused traces
+    # -------------------------
+    used_ids = set([tid for chain in chains for tid in chain])
+    all_ids = set(all_points_df["track_id"])
+
+    unused_ids = all_ids - used_ids
+
+    for tid in unused_ids:
+        subset = all_points_df[
+            all_points_df["track_id"] == tid
+        ].copy()
+
+        if subset.empty:
+            continue
+
+        subset = subset.sort_values("frame")
+        subset["track_id"] = new_track_id
+
+        merged_dfs.append(subset)
+        new_track_id += 1
+
+    # -------------------------
+    # 7. Combine everything
+    # -------------------------
+    if merged_dfs:
+        complete_traces = pd.concat(merged_dfs, ignore_index=True)
+    else:
+        complete_traces = pd.DataFrame(columns=all_points_df.columns)
+
+    return complete_traces, chains
     
 if __name__ == "__main__":
 
@@ -103,71 +180,84 @@ if __name__ == "__main__":
     # PARAMETERS
     # -----------------------------
 
-    CSV_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/botsort_by_claude_uc_tracking_data.csv"
+    CSV_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/baseline/test_uc_tracking_data.csv"
     OUTPUT_CSV = "merged_tracks.csv"
     MAX_FRAMES = 24 # maximum number of frames after a trace ends to look for a trace to match
     MAX_DIST = 100 # maximum distance between predicted location and start location of another trace that will be considered a possible match
 
+    # -----------------------------
     # Load all trace info
+    # -----------------------------
     all_df = load_tracks(CSV_PATH)
 
+    # -----------------------------
     # get metadata for each trace
+    # -----------------------------
     trace_metadata = build_track_info(all_df)
 
-    #remove traces that last less that 4 frames
-    traces_to_remove = trace_metadata[trace_metadata["end_frame"] - trace_metadata["start_frame"] < 5]["trace_id"].tolist()
-    print(traces_to_remove)
+    #delete traces that dont get past x = 500
+    trace_metadata = trace_metadata[trace_metadata["end_x"] > 500]
 
-    all_df = all_df[~all_df["track_id"].isin(traces_to_remove)]
+    # keep only valid track_ids
+    valid_ids = set(trace_metadata["trace_id"])
 
-    trace_metadata = trace_metadata[trace_metadata["end_frame"] - trace_metadata["start_frame"] >= 5]
+    # filter the full dataframe
+    all_df = all_df[all_df["track_id"].isin(valid_ids)]
 
+
+
+    # -----------------------------
     # Make a matches_df to store matching info
+    # -----------------------------
+
     matches_df = pd.DataFrame(trace_metadata["trace_id"]).rename(columns={"trace_id": "us_trace_id"}).reset_index()
     matches_df["ds_trace_id"] = pd.NA
 
-    print(len(trace_metadata))
+    # -----------------------------
+    # Next, iterate through traces starting with the most upstream start position, then iterating down from there, and try to find a match
+    # -----------------------------
 
-    #remove traces that end > 9700mm
-    trace_metadata = trace_metadata[trace_metadata["end_x"] < 9700]
+    for trace in trace_metadata.itertuples(index=False): #iterate through the traces (metadata df) and detect possible matches
 
-    print(len(trace_metadata))
+        possible_matches = pd.DataFrame(columns= trace_metadata.columns) #make a dataframe for possible matches for the trace
 
-    #iterate chronologically through traces (based on trace_id)
-    for row in trace_metadata.itertuples(index=False): 
-       
-        print(" ")
-        print(f"Trace {row.trace_id}")
-        print(f"start_frame: {row.start_frame}, end_frame: {row.end_frame}, class_id: {row.class_id}")
+        #first, we are going to start at the frame after the trace ended, and look for new traces that started downstream, iterating through a selected number of frames
+        max_frames = 48 #look for a trace to connect up to this number of frames after the trace dissapeared
 
-        #find the lower and uper bounds of x values to consider
-        lower_x = row.end_x - 10
+        for i in range(max_frames): # iterate through the number of frames to look at
+            search_frame = trace.end_frame + 1 + i #calculate the number of the frame to look at, starting with the one after the trace ended
+            
+            #parameters for finding possible traces
+            search_frame = trace_metadata["start_frame"] == search_frame #starts in the search frame
+            downstream = trace_metadata["start_x"] > trace.end_x - 15 #starts downstream of where the last trace ends
+            same_size = trace_metadata["class_id"] == trace.class_id #has the same size class id
+            
+            #apply the parameters to find possible matches for a given frame
+            possible_matches_frame = trace_metadata[search_frame & downstream & same_size].copy()
 
-        #find all matches within a certain x range around the last known position
-        possible_matches = trace_metadata[trace_metadata['start_x'].between(lower_x, 9800)].copy()
+            #calcualte a distance metric including spatial and temporal distance
+            possible_matches_frame["distance"] = np.sqrt((trace.end_x - possible_matches_frame["start_x"])**2 + 
+                                                         (trace.end_y - possible_matches_frame["start_y"])**2 + 
+                                                         (i+1)**2)
 
-        possible_matches["row_end_x"] = row.end_x
-        possible_matches["row_end_y"] = row.end_y
-        possible_matches["row_end_frame"] = row.end_frame
+            possible_matches = pd.concat([possible_matches, possible_matches_frame], ignore_index=True)
 
-        possible_matches["true_distance"] = np.sqrt((row.end_x - possible_matches["start_x"])**2 + (row.end_y - possible_matches["start_y"])**2)
-        possible_matches["space_time_distance"] = np.sqrt((row.end_x - possible_matches["start_x"])**2 + (row.end_y - possible_matches["start_y"])**2 + (row.end_frame - possible_matches["start_frame"])**2)
-        possible_matches["stdpert"] = possible_matches["space_time_distance"] / (row.end_frame - possible_matches["start_frame"])
+        possible_matches = possible_matches.sort_values("distance", ignore_index=True)
 
+        #now, choose the best possible match
+        if len(possible_matches) > 0:
+            match = possible_matches["trace_id"][0]
+            print(f"Best match for trace {trace.trace_id} = trace {match}")
 
-        #remove matches with the same trace id as the row
-        possible_matches = possible_matches[possible_matches["trace_id"] != row.trace_id]
+            matches_df.loc[matches_df["us_trace_id"] == trace.trace_id, "ds_trace_id"] = match
 
-        #only those that start after the row trace ends
-        possible_matches = possible_matches[possible_matches["start_frame"] > row.end_frame]
+        else: #if no good match, then skip
+            print(f"No good match for trace {trace.trace_id}")
 
-        #now lets check out these time aligned matches and remove impossible ones based on size class
-        possible_matches = possible_matches[possible_matches["class_id"] == row.class_id]
-        print("Only traces that start downstream and after row trace, AND are of the same size class:")
-        print(possible_matches)
         
 
+    complete_traces, chains = build_complete_traces(matches_df, all_df)
 
-
-    #plot = display_traces_interactive(complete_traces)
-    #plot.show()
+    plot = display_traces_interactive(complete_traces)
+    plot.show()
+    
