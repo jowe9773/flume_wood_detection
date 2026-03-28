@@ -28,7 +28,7 @@ def build_track_info(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_23-25/uc_tracking_data.csv")
+df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/uc_tracking_data_merged.csv")
 df = df.sort_values("frame").reset_index(drop=True)
 
 # -----------------------------

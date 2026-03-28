@@ -213,8 +213,8 @@ if __name__ == "__main__":
     # PARAMETERS
     # -----------------------------
 
-    CSV_PATH = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_23-25/uc_tracking_data.csv"
-    OUTPUT_CSV = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_23-25/uc_tracking_data_merged.csv"
+    CSV_PATH = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/uc_tracking_data.csv"
+    OUTPUT_CSV = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/uc_tracking_data_merged.csv"
 
     # -----------------------------
     # Load all trace info

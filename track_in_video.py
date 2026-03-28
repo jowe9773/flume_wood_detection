@@ -12,8 +12,8 @@ MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/yo
 VIDEO_PATH = "D:/Videos/20240808_exp1_goprodata_full.mp4"
 BOTSORT_FILE = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/bostort_files/test.yaml"
 
-OUTPUT_VIDEO = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_23-25/tracks_and_bb.mp4"
-CSV_OUTPUT = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_23-25/uc_tracking_data.csv"
+OUTPUT_VIDEO = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/tracks_and_bb.mp4"
+CSV_OUTPUT = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/uc_tracking_data.csv"
 
 # -----------------------------
 # TOGGLES
@@ -25,20 +25,28 @@ SAVE_CSV = True
 # -----------------------------
 # Performance Controls
 # -----------------------------
-TRACE_LENGTH = 300          # max points per track
-REMOVE_STALE_TRACKS = False  # remove tracks not in current frame
+TRACE_LENGTH = 300
+REMOVE_STALE_TRACKS = False
 DRAW_TRAILS = True
 
 # -----------------------------
 # Frame Controls
 # -----------------------------
-start_frame = 24*60*23
-max_frames_processed = 24*60*2
+start_frame = 24 * 60 * 43
+max_frames_processed = 24 * 60 * 2
 
 # -----------------------------
-# Load Model
+# Classes (IMPORTANT)
 # -----------------------------
-model = YOLO(MODEL_PATH)
+CLASS_IDS = [0, 1, 2]  # short, int, long
+
+# -----------------------------
+# Load Models (one per class)
+# -----------------------------
+trackers = {
+    cls_id: YOLO(MODEL_PATH)
+    for cls_id in CLASS_IDS
+}
 
 # -----------------------------
 # Video Setup
@@ -56,7 +64,7 @@ end_frame = min(start_frame + max_frames_processed, total_frames)
 pbar = tqdm(total=(end_frame - start_frame), desc="Processing Video")
 
 # -----------------------------
-# Video Writer (optional)
+# Video Writer
 # -----------------------------
 out = None
 if SAVE_VIDEO:
@@ -64,7 +72,7 @@ if SAVE_VIDEO:
     out = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, fps, (width, height))
 
 # -----------------------------
-# CSV Writer (optional)
+# CSV Writer
 # -----------------------------
 csv_file = None
 writer = None
@@ -105,7 +113,7 @@ def get_class_color(cls_id):
     return CLASS_COLOR_MAP.get(cls_id, (255, 255, 255))
 
 # -----------------------------
-# Drawing Functions
+# Drawing
 # -----------------------------
 def draw_bounding_box(frame, x1, y1, x2, y2, color):
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
@@ -145,66 +153,83 @@ while cap.isOpened():
     if not success:
         break
 
-    results = model.track(
-        frame,
-        tracker=BOTSORT_FILE,
-        persist=True,
-        verbose=False,
-        imgsz=3008   # reduced for performance
-    )[0]
-
+    all_detections = []
     current_ids = []
 
-    if results.boxes and results.boxes.is_track:
+    # -----------------------------
+    # Run one tracker per class
+    # -----------------------------
+    for cls_id, tracker_model in trackers.items():
 
-        boxes_xywh = results.boxes.xywh.cpu()
-        boxes_xyxy = results.boxes.xyxy.cpu()
-        track_ids = results.boxes.id.int().cpu().tolist()
-        confs = results.boxes.conf.cpu().tolist()
-        classes = results.boxes.cls.int().cpu().tolist()
+        results = tracker_model.track(
+            frame,
+            tracker=BOTSORT_FILE,
+            persist=True,
+            verbose=False,
+            imgsz=3008,
+            classes=[cls_id]
+        )[0]
 
-        current_ids = track_ids
+        if results.boxes and results.boxes.is_track:
 
-        for box, box_xyxy, track_id, conf, cls in zip(
-            boxes_xywh, boxes_xyxy, track_ids, confs, classes
-        ):
-            x, y, w, h = box
-            x1, y1, x2, y2 = map(int, box_xyxy)
+            boxes_xywh = results.boxes.xywh.cpu()
+            boxes_xyxy = results.boxes.xyxy.cpu()
+            track_ids = results.boxes.id.int().cpu().tolist()
+            confs = results.boxes.conf.cpu().tolist()
+            classes = results.boxes.cls.int().cpu().tolist()
 
-            # Clamp
-            x1 = max(0, x1)
-            y1 = max(0, y1)
-            x2 = min(width, x2)
-            y2 = min(height, y2)
+            # Offset IDs to prevent collisions
+            track_ids = [tid + cls_id * 100000 for tid in track_ids]
 
-            # Update track history
-            track_history[track_id].append((int(x), int(y)))
-            if len(track_history[track_id]) > TRACE_LENGTH:
-                track_history[track_id].pop(0)
+            for box, box_xyxy, track_id, conf, cls in zip(
+                boxes_xywh, boxes_xyxy, track_ids, confs, classes
+            ):
+                all_detections.append((box, box_xyxy, track_id, conf, cls))
 
-            scaling_factor = 2.5
-            tp_x = x * scaling_factor
-            tp_y = (y * scaling_factor * -1) + 2000
+    # -----------------------------
+    # Process detections
+    # -----------------------------
+    for box, box_xyxy, track_id, conf, cls in all_detections:
 
-            # Save CSV
-            if SAVE_CSV:
-                writer.writerow([
-                    track_id,
-                    frame_id,
-                    float(tp_x),
-                    float(tp_y),
-                    float(w*scaling_factor),
-                    float(h*scaling_factor),
-                    float(conf),
-                    int(cls),
-                    model.names[int(cls)],
-                    None
-                ])
+        x, y, w, h = box
+        x1, y1, x2, y2 = map(int, box_xyxy)
 
-            # Draw overlays
-            color = get_class_color(int(cls))
-            draw_bounding_box(frame, x1, y1, x2, y2, color)
-            draw_track_id(frame, track_id, x1, y1, color)
+        current_ids.append(track_id)
+
+        # Clamp
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        x2 = min(width, x2)
+        y2 = min(height, y2)
+
+        # Track history
+        track_history[track_id].append((int(x), int(y)))
+        if len(track_history[track_id]) > TRACE_LENGTH:
+            track_history[track_id].pop(0)
+
+        scaling_factor = 2.5
+        tp_x = x * scaling_factor
+        tp_y = (y * scaling_factor * -1) + 2000
+
+        # CSV
+        if SAVE_CSV:
+            writer.writerow([
+                track_id,
+                frame_id,
+                float(tp_x),
+                float(tp_y),
+                float(w * scaling_factor),
+                float(h * scaling_factor),
+                float(conf),
+                int(cls),
+                tracker_model.names[int(cls)],
+                None
+            ])
+
+        # Draw
+        color = get_class_color(int(cls))
+        draw_bounding_box(frame, x1, y1, x2, y2, color)
+        draw_track_id(frame, track_id, x1, y1, color)
 
     # -----------------------------
     # Remove stale tracks
@@ -243,7 +268,7 @@ while cap.isOpened():
     frame_id += 1
     pbar.update(1)
 
-    if frame_id > start_frame + max_frames_processed:
+    if frame_id > end_frame:
         break
 
 # -----------------------------
