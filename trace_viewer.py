@@ -225,7 +225,7 @@ def view_traces(df, video_path: str, output_path: str, start_frame: int = 0, dur
 if __name__ == "__main__":
     import pandas as pd
 
-    df         = pd.read_csv("your_traces.csv", sep=None, engine="python")
+    df = pd.read_csv("your_traces.csv", sep=None, engine="python")
     video_path = "your_video.mp4"
 
     view_traces(df, video_path, trail_len=30, scale=0.6)

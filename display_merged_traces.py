@@ -8,13 +8,13 @@ from trace_viewer import view_traces
 # Load your tracking data
 # -----------------------------
 # Example DataFrame columns: frame, track_id, center_x, center_y
-df = pd.read_csv(f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/uc_tracking_data_merged.csv")
+df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/postprocessed_tracking_outputs/2_0/first5_pp_tracking_data.csv")
 
 # -----------------------------
 # Video paths
 # -----------------------------
-video_path = "D:/Videos/20240808_exp1_goprodata_full.mp4"
-output_path = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/uc_tracking_data_merged.mp4"
+video_path = "D:/Videos/20240617_exp1_goprodata_full.mp4"
+output_path = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/postprocessed_tracking_outputs/2_0/first5_pp.mp4"
 
 
 def convert_to_image_coords(df, image_width, image_height):
@@ -44,7 +44,12 @@ cap.release()
 
 df = convert_to_image_coords(df, img_w, img_h)
 
+minutes = 4
+seconds = 21
 
-view_traces(df, video_path, output_path, start_frame= 24*60*43, duration = 24*60*2, trail_len=100, scale = 0.4) 
+start_frame = (24 * 60 * minutes) + (24 * seconds)
+max_frames_processed = 24 * 60 * 5
+
+view_traces(df, video_path, output_path, start_frame= start_frame, duration = max_frames_processed, trail_len=75, scale = 0.4) 
 
 

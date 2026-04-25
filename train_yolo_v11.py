@@ -33,20 +33,20 @@ def train_yolov11(
         # -------------------
         mosaic=1.0,
         mixup=0.0,
-        copy_paste=0.1,
+        copy_paste=0.,
         hsv_h=0.015,
         hsv_s=0.7,
         hsv_v=0.4,
-        translate=0.1,
+        translate=0.25,
         scale=0.0,
-        fliplr=0.5,
-        flipud=0.5,
-        degrees=0.1,
+        fliplr=0.1, 
+        flipud=0.1,
+        degrees=0.0,
 
         # -------------------
         # TRAINING BEHAVIOR
         # -------------------
-        close_mosaic=10,
+        close_mosaic=50,
         patience=0,
         workers=8,
         cache=False,
@@ -56,17 +56,17 @@ def train_yolov11(
 
 
 if __name__ == "__main__":
-    DATA_YAML = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes_vconcat/dataset.yaml"
+    DATA_YAML = "C:/Users/josie/local_data/YOLO/training_data/800_single_img_clear_pieces_only_uc/cross_val_yamls/final_train.yaml"
 
     best_model = train_yolov11(
         data_yaml=DATA_YAML,
         model_size= "yolo26n.pt",
-        epochs=500,
+        epochs=375,
         batch=1,
         imgsz=3000, 
         device= "0",
-        exp_name= "yolo26s_long_run",
-        project_dir= "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/0-24_annotations_three_classes_vconcat"
+        exp_name= "yolo26s_300",
+        project_dir= "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/uc_only"
     )
 
     print("Training finished.")

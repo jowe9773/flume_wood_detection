@@ -8,15 +8,19 @@ from tqdm import tqdm
 # -----------------------------
 # Config
 # -----------------------------
-MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/yolo26n/full_train/final/weights/best.pt"
-VIDEO_PATH = "D:/Videos/20240808_exp1_goprodata_full.mp4"
-BOTSORT_FILE = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/bostort_files/test.yaml"
+#define models used
+MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/models/yolov26n_long_train_uc_only/weights/best.pt"
+BOTSORT_FILE = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/models/bytetrack_tuned.yaml"
 
-OUTPUT_VIDEO = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/tracks_and_bb.mp4"
-CSV_OUTPUT = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/uc_tracking_data.csv"
+#input data
+VIDEO_PATH = "D:/Videos/20240606_exp1_goprodata_full.mp4"
+
+#output data
+OUTPUT_VIDEO = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/raw_tracking_outputs/0_25/first5.mp4"
+CSV_OUTPUT = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/raw_tracking_outputs/0_25/first5_tracking_data.csv"
 
 # -----------------------------
-# TOGGLES
+# TOGGLEStras
 # -----------------------------
 DISPLAY_VIDEO = True
 SAVE_VIDEO = True
@@ -32,8 +36,13 @@ DRAW_TRAILS = True
 # -----------------------------
 # Frame Controls
 # -----------------------------
-start_frame = 24 * 60 * 43
-max_frames_processed = 24 * 60 * 2
+
+minutes = 5
+seconds = 55
+
+start_frame = (24 * 60 * minutes) + (24 * seconds)
+max_frames_processed = 24 * 60 * 5
+
 
 # -----------------------------
 # Classes (IMPORTANT)

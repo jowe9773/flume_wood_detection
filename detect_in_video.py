@@ -1,18 +1,34 @@
 import cv2
+import os
 from ultralytics import YOLO
 
 # -----------------------------
 # Config
 # -----------------------------
+MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/models/yolov26n_long_train_uc_only/weights/best.pt"
+VIDEO_PATH = "D:/Videos/20240617_exp1_goprodata_full.mp4"
 
-MODEL_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/yolo26n/full_train/final/weights/best.pt"
-VIDEO_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240530_exp1_5-7min.mp4"
+minutes = 4
+seconds = 21
+FPS_ASSUMED = 24
+
 CONF_THRESH = 0.1
+START_FRAME = int(FPS_ASSUMED * 60 * minutes + FPS_ASSUMED * seconds)
+
+MAX_FRAMES = START_FRAME + FPS_ASSUMED * 60 * 5
+
+# Resize display (set max width so it fits on screen)
+DISPLAY_WIDTH = 1800
+
+SAVE_VIDEO = True
+OUTPUT_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/detections/2_0/output.mp4"
 
 # -----------------------------
 # Load model
 # -----------------------------
 model = YOLO(MODEL_PATH)
+# model.to("cuda")  # uncomment if using GPU
+
 
 # -----------------------------
 # Open video
@@ -21,51 +37,75 @@ cap = cv2.VideoCapture(VIDEO_PATH)
 if not cap.isOpened():
     raise IOError(f"Could not open video: {VIDEO_PATH}")
 
-cap.set(cv2.CAP_PROP_POS_FRAMES, 0) 
+fps = cap.get(cv2.CAP_PROP_FPS) or FPS_ASSUMED
 
-# Optional: get video properties
-fps = cap.get(cv2.CAP_PROP_FPS)
-width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+# Jump once
+cap.set(cv2.CAP_PROP_POS_FRAMES, START_FRAME)
+cur_frame = START_FRAME
+
+# -----------------------------
+# Video writer (init later)
+# -----------------------------
+out = None
+
+if SAVE_VIDEO:
+    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
 
 
-print(f"Video: {width}x{height} @ {fps:.1f} FPS")
+cv2.namedWindow("YOLO", cv2.WINDOW_NORMAL)
+
 
 # -----------------------------
 # Main loop
 # -----------------------------
 while True:
     ret, frame = cap.read()
-    print(ret)
-    if not ret:
-        continue
+    if not ret or cur_frame >= MAX_FRAMES:
+        break
 
-    frame = cv2.resize(frame, (width, height))
-    cv2.namedWindow("YOLO Detection", cv2.WINDOW_NORMAL)
-
-
-    # YOLO inference (single frame)
+    # YOLO inference
     results = model.predict(
         frame,
         conf=CONF_THRESH,
-        verbose=False,
-        show_labels=False,
-        show_conf=False
+        verbose=False
     )
 
-    # results[0] corresponds to this frame
-    annotated_frame = results[0].plot()
+    annotated = results[0].plot()
 
-    # Display
-    cv2.imshow("YOLO Detection", annotated_frame)
+    # Resize for display
+    h, w = annotated.shape[:2]
+    scale = DISPLAY_WIDTH / w
+    display = cv2.resize(annotated, (int(w * scale), int(h * scale)))
 
-    # Quit on 'q' or ESC
-    key = cv2.waitKey(1) & 0xFF
-    if key in (ord('q'), 27):
+    cv2.imshow("YOLO", display)
+
+    # -----------------------------
+    # Initialize writer ONCE (after we know frame size)
+    # -----------------------------
+    if SAVE_VIDEO and out is None:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        out = cv2.VideoWriter(
+            OUTPUT_PATH,
+            fourcc,
+            fps,
+            (w, h)  # original resolution (not resized)
+        )
+
+    # Write full-resolution annotated frame
+    if SAVE_VIDEO:
+        out.write(annotated)
+
+    # Minimal wait (fast playback)
+    if cv2.waitKey(1) & 0xFF == 27:
         break
+
+    cur_frame += 1
+
 
 # -----------------------------
 # Cleanup
 # -----------------------------
 cap.release()
+if out is not None:
+    out.release()
 cv2.destroyAllWindows()

@@ -58,19 +58,19 @@ def train_yolo(
 
 
 if __name__ == "__main__":
-    #if this script is run, then it will do a single training session
-    DATA_YAML = "C:/Users/josie/local_data/YOLO/training_data/400_merged_vert/cross_val_yamls/fold_8.yaml"
+    #if this script is run, then it will do a single training session 
+    DATA_YAML = "C:/Users/josie/local_data/YOLO/training_data/400_merged_vert/cross_val_yamls/final_train.yaml"
 
     best_model = train_yolo(
         data_yaml=DATA_YAML,
         model_size= "yolo26n.pt",
-        epochs=50,
+        epochs=200,
         batch=1,
         imgsz=3000, 
         device= "0",
-        exp_name= "Fold_8",
-        project_dir= "C:/Users/josie/local_data/YOLO/models/yolo26n/mosaic_1_cp_0_hsv_low",
-        PATIENCE=0
+        exp_name= "final_train_v2",
+        project_dir= "C:/Users/josie/local_data/YOLO/models/yolo26n/final_train",
+        PATIENCE=20
     )
 
     print("Training finished.")

@@ -2,28 +2,30 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 import warnings
+from scipy.optimize import linear_sum_assignment
 
 # -----------------------------
 # FUNCTION DEFINITIONS
 # -----------------------------
 
-def load_tracks(csv_path: str) -> dict:
+def load_tracks(csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
     df = df.sort_values("frame").reset_index(drop=True)
-    
     return df
 
 def build_track_info(df: pd.DataFrame) -> pd.DataFrame:
 
-    tracks = {tid: group.sort_values("frame").reset_index(drop=True)
-              for tid, group in df.groupby("track_id")}
+    tracks = {
+        tid: group.sort_values("frame").reset_index(drop=True)
+        for tid, group in df.groupby("track_id")
+    }
 
     rows = []
-    
+
     for tid, tdf in tracks.items():
         start = tdf.iloc[0]
         end = tdf.iloc[-1]
-        
+
         rows.append({
             "trace_id": tid,
             "start_frame": start.frame,
@@ -35,70 +37,250 @@ def build_track_info(df: pd.DataFrame) -> pd.DataFrame:
             "class_id": end.class_name,
             "duration": end.frame - start.frame,
         })
-    
-    df = pd.DataFrame(rows)
-    return df
 
-def display_traces_interactive(all_points_df, x='center_x', y='center_y', color='track_id', line_group='track_id', hover_data=['track_id', "frame"], markers=True):
-    # Plot lines for each track_id
+    return pd.DataFrame(rows)
+
+def display_traces_interactive(all_points_df):
     fig = px.line(
-        data_frame = all_points_df,
-        x=x,
-        y=y,
-        color=color,       # Each track gets a distinct color
-        line_group=line_group,  # Ensures points for the same track are connected
-        hover_data=hover_data,
-        markers=markers,           # Show markers at each point (optional)
+        data_frame=all_points_df,
+        x="center_x",
+        y="center_y",
+        color="track_id",
+        line_group="track_id",
+        hover_data=["track_id", "frame"],
+        markers=True,
     )
 
-    # Fix axis ranges
     fig.update_xaxes(range=[0, 9760])
     fig.update_yaxes(range=[-2000, 2000])
 
-    fig.update_layout(title='Interactive Trace Lines')
+    fig.update_layout(title="Interactive Trace Lines")
     return fig
 
-def find_possible_matches_for_trace(row, trace_metadata, max_frames=12, max_dist=400):
+# -----------------------------
+# HUNGARIAN MATCHING FUNCTION
+# -----------------------------
+def match_traces_hungarian_simple(
+    trace_metadata,
+    max_frame_gap=48,
+    time_scale=20,
+    x_scale = 1,
+    y_scale = 1,            
+    max_distance=800,           # cutoff for valid matches
+    downstream_tolerance=50     # how much upstream allowed
+):
 
-    print(f"Trace {row.trace_id}")   
+    traces = trace_metadata.reset_index(drop=True)
+    n = len(traces)
 
-def build_complete_traces(matches_df, all_points_df):
-    """
-    Combine fragmented traces into continuous tracks using upstream/downstream matches.
+    cost_matrix = np.full((n, n), fill_value=1e6)
 
-    Parameters
-    ----------
-    matches_df : pd.DataFrame
-        Must contain columns: ['us_trace_id', 'ds_trace_id']
-    all_points_df : pd.DataFrame
-        Must contain 'track_id' column + detection data
+    for i, us in traces.iterrows():
+        for j, ds in traces.iterrows():
 
-    Returns
-    -------
-    complete_traces : pd.DataFrame
-        Same format as all_points_df, but with merged track_ids
-    chains : list of lists
-        The trace chains that were constructed
-    """
+            # -------------------------
+            # BASIC FILTERS
+            # -------------------------
+
+            # must be future
+            if ds["start_frame"] <= us["end_frame"]:
+                continue
+
+            dt = ds["start_frame"] - us["end_frame"]
+
+            if dt > max_frame_gap:
+                continue
+
+            # same class
+            if ds["class_id"] != us["class_id"]:
+                continue
+
+            # roughly downstream (allow small upstream)
+            dx = ds["start_x"] - us["end_x"]
+            if dx < -downstream_tolerance:
+                continue
+
+            # -------------------------
+            # 3D DISTANCE (x, y, time)
+            # -------------------------
+            dx = x_scale*(ds["start_x"] - us["end_x"])
+            dy = y_scale*(ds["start_y"] - us["end_y"])
+
+            dt_scaled = dt * time_scale
+
+            distance = np.sqrt(dx**2 + dy**2 + dt_scaled**2)
+
+            # apply cutoff
+            if distance > max_distance:
+                continue
+
+            cost_matrix[i, j] = distance
 
     # -------------------------
-    # 1. Build mapping (us -> ds)
+    # Hungarian assignment
+    # -------------------------
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+    matches = []
+
+    for r, c in zip(row_ind, col_ind):
+        cost = cost_matrix[r, c]
+
+        if cost >= 1e5:
+            continue
+
+        matches.append((
+            traces.loc[r, "trace_id"],
+            traces.loc[c, "trace_id"],
+            cost
+        ))
+
+    return pd.DataFrame(matches, columns=[
+        "us_trace_id", "ds_trace_id", "distance"
+    ])
+
+# -----------------------------
+# MESSY TRACK MATCHING FUNCTION
+# -----------------------------
+def merge_overlapping_tracks(df: pd.DataFrame, max_spatial_distance: float = 15.0) -> pd.DataFrame:
+    """
+    Finds pairs of tracks that overlap in time and are spatially close during
+    the overlap window. Merges them into one track, keeping the upstream
+    (smaller start_x) track's detections during the overlap, and appending
+    the downstream track's non-overlapping tail.
+    
+    Run this after build_complete_traces and before filter_short_traces.
+    """
+    df = df.copy()
+    
+    # We'll iteratively merge until no more merges are found
+    # (handles chains of overlapping tracks)
+    merged_any = True
+    
+    while merged_any:
+        merged_any = False
+        
+        track_ids = df["track_id"].unique()
+        
+        # Build a quick lookup: track_id -> (start_frame, end_frame, start_x)
+        track_info = {}
+        for tid in track_ids:
+            t = df[df["track_id"] == tid]
+            track_info[tid] = {
+                "start_frame": t["frame"].min(),
+                "end_frame":   t["frame"].max(),
+                "start_x":     t.loc[t["frame"].idxmin(), "center_x"]
+            }
+        
+        # Find overlapping pairs that are spatially close
+        merged_in_pass = set()
+        
+        for i, tid_a in enumerate(track_ids):
+            if tid_a in merged_in_pass:
+                continue
+                
+            for tid_b in track_ids[i+1:]:
+                if tid_b in merged_in_pass:
+                    continue
+                
+                info_a = track_info[tid_a]
+                info_b = track_info[tid_b]
+                
+                # Find overlapping frame range
+                overlap_start = max(info_a["start_frame"], info_b["start_frame"])
+                overlap_end   = min(info_a["end_frame"],   info_b["end_frame"])
+                
+                if overlap_start > overlap_end:
+                    # No temporal overlap
+                    continue
+                
+                # Get detections from both tracks during overlap window
+                frames_a = df[
+                    (df["track_id"] == tid_a) &
+                    (df["frame"] >= overlap_start) &
+                    (df["frame"] <= overlap_end)
+                ][["frame", "center_x", "center_y"]].set_index("frame")
+                
+                frames_b = df[
+                    (df["track_id"] == tid_b) &
+                    (df["frame"] >= overlap_start) &
+                    (df["frame"] <= overlap_end)
+                ][["frame", "center_x", "center_y"]].set_index("frame")
+                
+                # Only compare frames where BOTH tracks have a detection
+                common_frames = frames_a.index.intersection(frames_b.index)
+                
+                if len(common_frames) == 0:
+                    continue
+                
+                # Compute mean spatial distance across shared frames
+                dx = frames_a.loc[common_frames, "center_x"] - frames_b.loc[common_frames, "center_x"]
+                dy = frames_a.loc[common_frames, "center_y"] - frames_b.loc[common_frames, "center_y"]
+                mean_dist = np.sqrt(dx**2 + dy**2).mean()
+                
+                if mean_dist > max_spatial_distance:
+                    continue
+                
+                # ---------------------------------
+                # These tracks should be merged
+                # Upstream = smaller start_x
+                # ---------------------------------
+                if info_a["start_x"] <= info_b["start_x"]:
+                    us_id, ds_id = tid_a, tid_b
+                else:
+                    us_id, ds_id = tid_b, tid_a
+                
+                us_end_frame = track_info[us_id]["end_frame"]
+                
+                # Keep all upstream detections
+                us_rows = df[df["track_id"] == us_id].copy()
+                
+                # Keep only the non-overlapping tail of the downstream track
+                ds_tail = df[
+                    (df["track_id"] == ds_id) &
+                    (df["frame"] > us_end_frame)
+                ].copy()
+                ds_tail["track_id"] = us_id
+                
+                # Drop both tracks from df, re-add merged version
+                df = df[~df["track_id"].isin([us_id, ds_id])]
+                df = pd.concat([df, us_rows, ds_tail], ignore_index=True)
+                
+                merged_in_pass.add(ds_id)
+                merged_any = True
+                break  # restart inner loop for tid_a since track_ids changed
+            
+    return df.sort_values(["track_id", "frame"]).reset_index(drop=True)
+
+# -----------------------------
+# TRACE CHAINING
+# -----------------------------
+def build_complete_traces(matches_df, all_points_df):
+
+    # -------------------------
+    # Build mapping
     # -------------------------
     mapping = dict(
-        matches_df.dropna(subset=["ds_trace_id"])
-                .set_index("us_trace_id")["ds_trace_id"]
+        matches_df.set_index("us_trace_id")["ds_trace_id"]
     )
 
-    # -------------------------
-    # 2. Find start nodes
-    # -------------------------
-    all_us = set(matches_df["us_trace_id"])
-    all_ds = set(matches_df["ds_trace_id"].dropna())
+    # reverse mapping (optional but helpful)
+    reverse_mapping = dict(
+        matches_df.set_index("ds_trace_id")["us_trace_id"]
+    )
 
+    all_us = set(matches_df["us_trace_id"])
+    all_ds = set(matches_df["ds_trace_id"])
+
+    # start nodes = never downstream of anything
     start_nodes = all_us - all_ds
 
+    #create a characteristic that shows as true for an actual detection
+    all_points_df = all_points_df.copy()
+    all_points_df["is_real"] = True
+
     # -------------------------
-    # 3. Chain builder
+    # Build full chain
     # -------------------------
     def build_chain(start):
         chain = [start]
@@ -106,28 +288,27 @@ def build_complete_traces(matches_df, all_points_df):
 
         while chain[-1] in mapping:
             nxt = mapping[chain[-1]]
-
-            # prevent infinite loops (just in case)
             if nxt in visited:
                 break
-
             chain.append(nxt)
             visited.add(nxt)
 
         return chain
 
-    # -------------------------
-    # 4. Build all chains
-    # -------------------------
-    chains = [build_chain(start) for start in start_nodes]
+    chains = [build_chain(s) for s in start_nodes]
 
     # -------------------------
-    # 5. Merge traces
+    # Assign upstream-most ID
     # -------------------------
     merged_dfs = []
-    new_track_id = 0
 
     for chain in chains:
+
+        if len(chain) == 0:
+            continue
+
+        upstream_id = chain[0]   # 👈 THIS IS THE KEY CHANGE
+
         subset = all_points_df[
             all_points_df["track_id"].isin(chain)
         ].copy()
@@ -136,17 +317,17 @@ def build_complete_traces(matches_df, all_points_df):
             continue
 
         subset = subset.sort_values("frame")
-        subset["track_id"] = chain[0]
+
+        # overwrite ALL IDs in chain with upstream ID
+        subset["track_id"] = upstream_id
 
         merged_dfs.append(subset)
-        new_track_id += 1
 
     # -------------------------
-    # 6. Handle unused traces
+    # Handle unused traces (no matches)
     # -------------------------
-    used_ids = set([tid for chain in chains for tid in chain])
+    used_ids = set(t for chain in chains for t in chain)
     all_ids = set(all_points_df["track_id"])
-
     unused_ids = all_ids - used_ids
 
     for tid in unused_ids:
@@ -154,156 +335,132 @@ def build_complete_traces(matches_df, all_points_df):
             all_points_df["track_id"] == tid
         ].copy()
 
-        if subset.empty:
-            continue
-
         subset = subset.sort_values("frame")
-        subset["track_id"] = new_track_id
+
+        # keep original ID (no change)
+        subset["track_id"] = tid
 
         merged_dfs.append(subset)
-        new_track_id += 1
 
     # -------------------------
-    # 7. Combine everything
+    # Final output
     # -------------------------
     if merged_dfs:
-        complete_traces = pd.concat(merged_dfs, ignore_index=True)
+        return pd.concat(merged_dfs, ignore_index=True), chains
     else:
-        complete_traces = pd.DataFrame(columns=all_points_df.columns)
+        return pd.DataFrame(columns=all_points_df.columns), chains
 
-    return complete_traces, chains
-    
+# -----------------------------
+# INTERPOLATION
+# -----------------------------
 def interpolate_traces(df):
-    # Ensure frame is integer
-    df['frame'] = df['frame'].astype(int)
 
-    # Sort for proper interpolation order
-    df = df.sort_values(['track_id', 'frame']).reset_index(drop=True)
+    df = df.copy()
+    df["frame"] = df["frame"].astype(int)
+    df = df.sort_values(["track_id", "frame"]).reset_index(drop=True)
 
     interpolated_list = []
 
-    for tid, group in df.groupby('track_id'):
-        group = group.sort_values('frame')
+    for tid, group in df.groupby("track_id"):
+        group = group.sort_values("frame")
 
-        # Convert frame bounds to int explicitly
-        start = int(group['frame'].min())
-        end = int(group['frame'].max())
+        start = int(group["frame"].min())
+        end = int(group["frame"].max())
 
-        # Create frame range ONLY for this track
         track_frames = pd.DataFrame({
-            'frame': range(start, end + 1)
+            "frame": range(start, end + 1)
         })
-        track_frames['track_id'] = tid
+        track_frames["track_id"] = tid
 
-        # Merge to introduce missing frames
-        track_group = pd.merge(track_frames, group, on=['track_id', 'frame'], how='left')
+        track_group = pd.merge(
+            track_frames,
+            group,
+            on=["track_id", "frame"],
+            how="left"
+        )
 
-        # Interpolate all gaps
-        track_group['center_x'] = track_group['center_x'].interpolate(method='linear')
-        track_group['center_y'] = track_group['center_y'].interpolate(method='linear')
+        # mark real points BEFORE interpolation
+        track_group["is_real"] = track_group["center_x"].notna()
+
+        track_group["center_x"] = track_group["center_x"].interpolate()
+        track_group["center_y"] = track_group["center_y"].interpolate()
 
         interpolated_list.append(track_group)
 
     return pd.concat(interpolated_list, ignore_index=True)
 
+# -----------------------------
+# REMOVAL OF SMALL TRACES
+# -----------------------------
+def filter_short_traces(df: pd.DataFrame, min_points: int = 5) -> pd.DataFrame:
+    """
+    Remove track_ids that have fewer than `min_points` rows (detections).
+    """
+
+    counts = df.groupby("track_id").size()
+
+    valid_ids = counts[counts >= min_points].index
+
+    filtered_df = df[df["track_id"].isin(valid_ids)].copy()
+
+    return filtered_df
+
+# -----------------------------
+# MAIN
+# -----------------------------
 if __name__ == "__main__":
 
     warnings.simplefilter(action='ignore', category=FutureWarning)
-    # -----------------------------
-    # PARAMETERS
-    # -----------------------------
 
-    CSV_PATH = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/uc_tracking_data.csv"
-    OUTPUT_CSV = f"C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/uc_tracking_data_merged.csv"
+    CSV_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/raw_tracking_outputs/2_0/first5_tracking_data.csv"
+    OUTPUT_CSV = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/postprocessed_tracking_outputs/2_0/first5_pp_tracking_data.csv"
 
-    # -----------------------------
-    # Load all trace info
-    # -----------------------------
+    # Load
     all_df = load_tracks(CSV_PATH)
 
-    # -----------------------------
-    # get metadata for each trace
-    # -----------------------------
     trace_metadata = build_track_info(all_df)
 
-    #delete traces that dont get past x = 500
+    # Filter
     trace_metadata = trace_metadata[trace_metadata["end_x"] > 500]
-
-    # keep only valid track_ids
     valid_ids = set(trace_metadata["trace_id"])
-
-    # filter the full dataframe
     all_df = all_df[all_df["track_id"].isin(valid_ids)]
 
-
-
     # -----------------------------
-    # Make a matches_df to store matching info
+    # MATCHING (GLOBAL)
     # -----------------------------
-
-    matches_df = pd.DataFrame(trace_metadata["trace_id"]).rename(columns={"trace_id": "us_trace_id"}).reset_index()
-    matches_df["ds_trace_id"] = pd.NA
-
-    # -----------------------------
-    # Next, iterate through traces starting with the most upstream start position, then iterating down from there, and try to find a match
-    # -----------------------------
-    max_frames = 100
-    start_dist = 100
-    inc_rate = 50
-
-    for i in range(max_frames): #iterate through the number of frames you want to check after the end of each trace
-        for trace in trace_metadata.itertuples(index=False): #iterate through the traces (metadata df)
-
-            search_frame = trace.end_frame + 1 + i #calc the frame number you are searching for new traces
-
-
-            search_frame = trace_metadata["start_frame"] == search_frame #traces that start in the search frame in the search frame
-            possible_matches = trace_metadata[search_frame].copy()
-
-            if len(possible_matches) > 0:
-                #print(f"All new traces that started {i+1} frames after trace {trace.trace_id} ended")
-                #print(possible_matches)
-
-                downstream = possible_matches["start_x"].between(trace.end_x - 15, trace.end_x + start_dist + i*inc_rate) #starts downstream of where the last trace ends, expand searcha area as more time passes
-                possible_matches = possible_matches[downstream]
-                #print(f"Traces that are also in the search window")
-                #print(possible_matches)
-
-                if len(possible_matches) > 0:
-                    same_size = possible_matches["class_id"] == trace.class_id #has the same size class id
-                    possible_matches = possible_matches[same_size]
-                    #print(f"Traces that are also the same size class")
-                    #print(possible_matches)
-
-                if len(possible_matches) > 0:
-                    non_matched = ~possible_matches["trace_id"].isin(matches_df["ds_trace_id"])
-                    possible_matches = possible_matches[non_matched]
-
-                    #print(f"Searching trace {trace.trace_id} for possible matches in the frame {i+1} after the end of the trace")
-                    #print(f"Traces that are also not already matched")
-                
-                if len(possible_matches) > 0:
-                    #calcualte a distance metric including spatial and temporal distance
-                    possible_matches["distance"] = np.sqrt((trace.end_x - possible_matches["start_x"])**2 + (trace.end_y - possible_matches["start_y"])**2)
-
-                    possible_matches = possible_matches.sort_values("distance", ignore_index=True)
-                    match = possible_matches["trace_id"][0]
-
-                    print(f"Best match for trace {trace.trace_id} = trace {match} which started {i+1} frames after end")
-
-                    matches_df.loc[matches_df["us_trace_id"] == trace.trace_id, "ds_trace_id"] = match
-
-                    print(" ")
-
-    pd.set_option("display.max_rows", None)
+    matches_df = match_traces_hungarian_simple(
+        trace_metadata,
+        max_frame_gap=48,
+        time_scale=10,
+        x_scale = 1,
+        y_scale = 10,
+        max_distance=1000,
+        downstream_tolerance=50
+    )
     print(matches_df)
 
-
+    # -----------------------------
+    # BUILD TRACKS
+    # -----------------------------
     complete_traces, chains = build_complete_traces(matches_df, all_df)
 
-    interpolated_traces = interpolate_traces(complete_traces)
+    complete_traces = merge_overlapping_tracks(complete_traces, max_spatial_distance=15.0)
+
+    complete_traces_no_short = filter_short_traces(complete_traces, 12)
+
+    # -----------------------------
+    # INTERPOLATE
+    # -----------------------------
+    interpolated_traces = interpolate_traces(complete_traces_no_short)
+
+    # -----------------------------
+    # Save!
+    # -----------------------------
     interpolated_traces.to_csv(OUTPUT_CSV)
 
-
-    plot = display_traces_interactive(interpolated_traces)
-    plot.show()
+    # -----------------------------
+    # PLOT
+    # -----------------------------
+    print(len(np.unique(interpolated_traces["track_id"])))
+    fig = display_traces_interactive(interpolated_traces)
+    fig.show()

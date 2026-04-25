@@ -27,8 +27,8 @@ def build_track_info(df: pd.DataFrame) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     return df
 
-df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/raw_tracking_outputs/0_25/first5_tracking_data.csv")
-#df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/postprocessed_tracking_outputs/0_25/first5_pp_tracking_data.csv")
+
+df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/training_model/BOTsort/hyperparameter_tuning/uncongested/20240808_exp1_43-45/uc_tracking_data.csv")
 df = df.sort_values("frame").reset_index(drop=True)
 
 # -----------------------------
@@ -36,24 +36,7 @@ df = df.sort_values("frame").reset_index(drop=True)
 # -----------------------------
 trace_metadata = build_track_info(df)
 
-print(trace_metadata)
-print(len(trace_metadata))
+# print details
 
+print(f"There are {len(df)} detections in this tracking dataset with {len(trace_metadata)} traces.")
 
-# Plot lines for each track_id
-fig = px.line(
-    df,
-    x='center_x',
-    y='center_y',
-    color='track_id',       # Each track gets a distinct color
-    line_group='track_id',  # Ensures points for the same track are connected
-    hover_data=['track_id', 'frame'],
-    markers=True,           # Show markers at each point (optional)
-)
-
-# Fix axis ranges
-fig.update_xaxes(range=[0, 9760])
-fig.update_yaxes(range=[-2000, 2000])
-
-fig.update_layout(title='Interactive Trace Lines')
-fig.show()
