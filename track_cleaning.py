@@ -385,6 +385,8 @@ def interpolate_traces(df):
         track_group["center_x"] = track_group["center_x"].interpolate()
         track_group["center_y"] = track_group["center_y"].interpolate()
 
+        track_group["class_id"] = group["class_id"].max() #added this to include the class_id in the interpolated points not sure if it will work
+
         interpolated_list.append(track_group)
 
     return pd.concat(interpolated_list, ignore_index=True)
@@ -406,6 +408,80 @@ def filter_short_traces(df: pd.DataFrame, min_points: int = 5) -> pd.DataFrame:
     return filtered_df
 
 # -----------------------------
+# FINAL MANUAL CHAINING
+# -----------------------------
+def manually_chain_and_rebuild(df: pd.DataFrame, manual_chains: list[list[int]]) -> pd.DataFrame:
+    """
+    Manually chain tracks and rebuild them properly (so interpolation works).
+
+    Each chain is merged into a single track with the upstream-most ID.
+    """
+
+    df = df.copy()
+    merged_dfs = []
+    used_ids = set()
+
+    for chain in manual_chains:
+        if len(chain) == 0:
+            continue
+
+        # Sort by start frame (true upstream → downstream)
+        chain_sorted = sorted(
+            chain,
+            key=lambda tid: df[df["track_id"] == tid]["frame"].min()
+        )
+
+        master_id = chain_sorted[0]
+
+        subset = df[df["track_id"].isin(chain_sorted)].copy()
+        subset = subset.sort_values("frame")
+
+        # Assign all to master ID
+        subset["track_id"] = master_id
+
+        merged_dfs.append(subset)
+        used_ids.update(chain_sorted)
+
+    # Add untouched tracks
+    remaining = df[~df["track_id"].isin(used_ids)].copy()
+    merged_dfs.append(remaining)
+
+    out = pd.concat(merged_dfs, ignore_index=True)
+
+    return out.sort_values(["track_id", "frame"]).reset_index(drop=True)
+
+
+# -----------------------------
+# REMOVE STATIC TRACES
+# -----------------------------
+def filter_static_traces(df: pd.DataFrame, min_displacement: float = 25.0) -> pd.DataFrame:
+    """
+    Remove tracks that do not move significantly.
+
+    Parameters
+    ----------
+    min_displacement : float
+        Minimum distance (in pixels) a track must move from start point.
+    """
+
+    keep_ids = []
+
+    for tid, group in df.groupby("track_id"):
+        group = group.sort_values("frame")
+
+        x0, y0 = group.iloc[0][["center_x", "center_y"]]
+
+        dx = group["center_x"] - x0
+        dy = group["center_y"] - y0
+
+        max_disp = np.sqrt(dx**2 + dy**2).max()
+
+        if max_disp >= min_displacement:
+            keep_ids.append(tid)
+
+    return df[df["track_id"].isin(keep_ids)].copy()
+
+# -----------------------------
 # MAIN
 # -----------------------------
 if __name__ == "__main__":
@@ -413,7 +489,7 @@ if __name__ == "__main__":
     warnings.simplefilter(action='ignore', category=FutureWarning)
 
     CSV_PATH = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/raw_tracking_outputs/2_0/first5_tracking_data.csv"
-    OUTPUT_CSV = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/postprocessed_tracking_outputs/2_0/first5_pp_tracking_data.csv"
+    OUTPUT_CSV = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/postprocessed_tracking_outputs/2_0/first5_pp_tracking_data_v2.csv"
 
     # Load
     all_df = load_tracks(CSV_PATH)
@@ -446,12 +522,32 @@ if __name__ == "__main__":
 
     complete_traces = merge_overlapping_tracks(complete_traces, max_spatial_distance=15.0)
 
-    complete_traces_no_short = filter_short_traces(complete_traces, 12)
+    complete_traces_no_short = filter_short_traces(complete_traces, 24)
 
+    """# -----------------------------
+    # MANUAL FIXES (list of lists)
+    # -----------------------------
+    manual_chains = [
+        [390, 1193]
+    ]
+
+    complete_traces_no_short = manually_chain_and_rebuild(
+        complete_traces_no_short,
+        manual_chains
+    )
+    """
     # -----------------------------
     # INTERPOLATE
     # -----------------------------
     interpolated_traces = interpolate_traces(complete_traces_no_short)
+
+    # -----------------------------
+    # Remove traces that dont move significantly
+    # -----------------------------
+    interpolated_traces = filter_static_traces(
+        interpolated_traces,
+        min_displacement=100
+    )
 
     # -----------------------------
     # Save!

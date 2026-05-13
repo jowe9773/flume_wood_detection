@@ -20,7 +20,7 @@ OUTPUT_VIDEO = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/by
 CSV_OUTPUT = "C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/raw_tracking_outputs/0_25/first5_tracking_data.csv"
 
 # -----------------------------
-# TOGGLEStras
+# TOGGLES
 # -----------------------------
 DISPLAY_VIDEO = True
 SAVE_VIDEO = True

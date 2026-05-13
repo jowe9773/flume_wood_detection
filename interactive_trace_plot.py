@@ -27,8 +27,8 @@ def build_track_info(df: pd.DataFrame) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     return df
 
-df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/raw_tracking_outputs/0_25/first5_tracking_data.csv")
-#df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/postprocessed_tracking_outputs/0_25/first5_pp_tracking_data.csv")
+
+df = pd.read_csv("C:/Users/josie/OneDrive - UCB-O365/Wood Tracking/EGU_analyses/bytetrack/postprocessed_tracking_outputs/0_25/first5_pp_tracking_data.csv")
 df = df.sort_values("frame").reset_index(drop=True)
 
 # -----------------------------
